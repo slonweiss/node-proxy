@@ -1,0 +1,24 @@
+{
+  "name": "localhost",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-serverless-express": "^3.4.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "file-type": "^19.5.0",
+    "filetype": "^0.1.0",
+    "multer": "^1.4.5-lts.1",
+    "sanitize-filename": "^1.6.3",
+    "sharp": "^0.33.5"
+  }
+}
