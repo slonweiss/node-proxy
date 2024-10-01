@@ -1,18 +1,13 @@
 version: 0.2
-
 phases:
   install:
     runtime-versions:
-      nodejs: 14 # or whatever runtime you're using
+      python: 3.8
   build:
     commands:
-      - echo "Building the Lambda function"
-      - cd src
-      - npm install # if you're using Node.js
-      - zip -r ../function.zip . # package your function
-
+      - sam build
+      - sam package --s3-bucket ${ARTIFACT_BUCKET} --output-template-file packaged.yaml
 artifacts:
   files:
-    - function.zip
-    - appspec.yml
+    - packaged.yaml
   discard-paths: yes
