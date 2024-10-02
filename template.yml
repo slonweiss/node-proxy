@@ -30,13 +30,13 @@ Resources:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
         SubnetIds:
-          - !Select [0, !Split [",", !ImportValue DefaultSubnetIds]]
-          - !Select [1, !Split [",", !ImportValue DefaultSubnetIds]]
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
       Events:
         ApiEvent:
           Type: Api
           Properties:
-            Path: /analyze
+            Path: /analyze-image
             Method: post
 
   ImageBucket:
@@ -60,7 +60,34 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for Lambda function
-      VpcId: !ImportValue DefaultVPCId
+      VpcId: !Ref DefaultVPC
+
+  DefaultVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: Default VPC
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DefaultVPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DefaultVPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
 
   DynamoDBEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -74,10 +101,27 @@ Resources:
               - "dynamodb:*"
             Resource: "*"
       ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
-      VpcId: !ImportValue DefaultVPCId
+      VpcId: !Ref DefaultVPC
       VpcEndpointType: Gateway
       RouteTableIds:
-        - !ImportValue DefaultRouteTableId
+        - !Ref PrivateRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DefaultVPC
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
