@@ -1,4 +1,5 @@
 version: 0.2
+
 phases:
   install:
     runtime-versions:
@@ -9,6 +10,7 @@ phases:
       - npm install
       - sam build
       - sam package --s3-bucket node-codebuild-artifacts --output-template-file packaged.yaml
+
 artifacts:
   files:
     - packaged.yaml
