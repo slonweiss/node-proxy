@@ -13,7 +13,7 @@ Resources:
     Properties:
       FunctionName: RealEyesAINodeJsProxy
       Handler: index.handler
-      Runtime: nodejs14.x
+      Runtime: nodejs20.x
       CodeUri: ./ # Directory containing your Lambda function code
       Description: Node.js Proxy for RealEyes AI
       Environment:
