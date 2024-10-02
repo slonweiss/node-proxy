@@ -2,12 +2,6 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: SAM Template for RealEyes AI Node.js Proxy Lambda
 
-Parameters:
-  DefaultVPCId:
-    Type: AWS::EC2::VPC::Id
-    Default: vpc-05aa482b9270414e4
-    Description: The ID of the default VPC
-
 Globals:
   Function:
     Timeout: 30
@@ -31,13 +25,6 @@ Resources:
             BucketName: !Ref ImageBucket
         - DynamoDBCrudPolicy:
             TableName: !Ref CacheTable
-        - VPCAccessPolicy: {}
-      VpcConfig:
-        SecurityGroupIds:
-          - !Ref LambdaSecurityGroup
-        SubnetIds: !Split
-          - ","
-          - !ImportValue DefaultSubnetIds
       Events:
         ApiEvent:
           Type: Api
@@ -61,29 +48,6 @@ Resources:
         - AttributeName: ImageHash
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
-
-  LambdaSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for Lambda function
-      VpcId: !Ref DefaultVPCId
-
-  DynamoDBEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action:
-              - "dynamodb:*"
-            Resource: "*"
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
-      VpcId: !Ref DefaultVPCId
-      VpcEndpointType: Gateway
-      RouteTableIds:
-        - !ImportValue DefaultRouteTableId
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
