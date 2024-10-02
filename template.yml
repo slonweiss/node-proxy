@@ -12,7 +12,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: RealEyesAINodeJsProxy
-      Handler: index.handler
+      Handler: lambda.handler
       Runtime: nodejs20.x
       CodeUri: ./ # Directory containing your Lambda function code
       Description: Node.js Proxy for RealEyes AI
@@ -30,8 +30,8 @@ Resources:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
         SubnetIds:
-          - !Ref PrivateSubnet1
-          - !Ref PrivateSubnet2
+          - !Ref DefaultSubnet1
+          - !Ref DefaultSubnet2
       Events:
         ApiEvent:
           Type: Api
@@ -60,28 +60,26 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for Lambda function
-      VpcId: !Ref VPC
+      VpcId: !Ref DefaultVPC
 
-  VPC:
+  DefaultVPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsHostnames: true
-      EnableDnsSupport: true
+      Default: true
 
-  PrivateSubnet1:
+  DefaultSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref VPC
+      VpcId: !Ref DefaultVPC
       AvailabilityZone: !Select [0, !GetAZs ""]
-      CidrBlock: 10.0.1.0/24
+      Default: true
 
-  PrivateSubnet2:
+  DefaultSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref VPC
+      VpcId: !Ref DefaultVPC
       AvailabilityZone: !Select [1, !GetAZs ""]
-      CidrBlock: 10.0.2.0/24
+      Default: true
 
   DynamoDBEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -95,27 +93,16 @@ Resources:
               - "dynamodb:*"
             Resource: "*"
       ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
-      VpcId: !Ref VPC
+      VpcId: !Ref DefaultVPC
       VpcEndpointType: Gateway
       RouteTableIds:
-        - !Ref PrivateRouteTable
+        - !Ref DefaultRouteTable
 
-  PrivateRouteTable:
+  DefaultRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref VPC
-
-  PrivateSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet1
-
-  PrivateSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet2
+      VpcId: !Ref DefaultVPC
+      Default: true
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
