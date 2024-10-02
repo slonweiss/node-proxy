@@ -5,9 +5,10 @@ phases:
       nodejs: 20
   build:
     commands:
+      - echo "Using artifact bucket: node-codebuild-artifacts"
       - npm install
       - sam build
-      - sam package --s3-bucket ${ARTIFACT_BUCKET} --output-template-file packaged.yaml
+      - sam package --s3-bucket node-codebuild-artifacts --output-template-file packaged.yaml
 artifacts:
   files:
     - packaged.yaml
