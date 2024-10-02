@@ -20,17 +20,11 @@ Resources:
         Variables:
           S3_BUCKET: !Ref ImageBucket
           DYNAMODB_TABLE: !Ref CacheTable
-          SAGEMAKER_ENDPOINT: !Ref SageMakerEndpoint
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref ImageBucket
         - DynamoDBCrudPolicy:
             TableName: !Ref CacheTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - sagemaker:InvokeEndpoint
-              Resource: !Ref SageMakerEndpoint
       Events:
         ApiEvent:
           Type: Api
@@ -54,41 +48,6 @@ Resources:
         - AttributeName: ImageHash
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
-
-  SageMakerEndpoint:
-    Type: AWS::SageMaker::EndpointConfig
-    Properties:
-      ProductionVariants:
-        - InitialInstanceCount: 1
-          InstanceType: ml.t2.medium
-          ModelName: !Ref SageMakerModel
-          VariantName: AllTraffic
-
-  SageMakerModel:
-    Type: AWS::SageMaker::Model
-    Properties:
-      ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
-      PrimaryContainer:
-        Image:
-          {
-            Fn::Sub: "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/sagemaker-model:latest",
-          }
-        ModelDataUrl: s3://your-model-bucket/model.tar.gz
-
-  SageMakerExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - sagemaker.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
 
 Outputs:
   ApiUrl:
