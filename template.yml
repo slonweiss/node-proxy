@@ -30,8 +30,8 @@ Resources:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup
         SubnetIds:
-          - !Ref DefaultSubnet1
-          - !Ref DefaultSubnet2
+          - !Select [0, !Split [",", !ImportValue DefaultSubnetIds]]
+          - !Select [1, !Split [",", !ImportValue DefaultSubnetIds]]
       Events:
         ApiEvent:
           Type: Api
@@ -60,26 +60,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for Lambda function
-      VpcId: !Ref DefaultVPC
-
-  DefaultVPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      Default: true
-
-  DefaultSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref DefaultVPC
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      Default: true
-
-  DefaultSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref DefaultVPC
-      AvailabilityZone: !Select [1, !GetAZs ""]
-      Default: true
+      VpcId: !ImportValue DefaultVPCId
 
   DynamoDBEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -93,16 +74,10 @@ Resources:
               - "dynamodb:*"
             Resource: "*"
       ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
-      VpcId: !Ref DefaultVPC
+      VpcId: !ImportValue DefaultVPCId
       VpcEndpointType: Gateway
       RouteTableIds:
-        - !Ref DefaultRouteTable
-
-  DefaultRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref DefaultVPC
-      Default: true
+        - !ImportValue DefaultRouteTableId
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
@@ -115,4 +90,4 @@ Resources:
 Outputs:
   ApiUrl:
     Description: URL of the API endpoint
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/analyze"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/analyze-image"
