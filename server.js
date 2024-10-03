@@ -51,24 +51,16 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     console.log("Buffer length:", buffer.length);
     console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
-    // Detect the file type using fileTypeFromBuffer
-    let type = await fileTypeFromBuffer(buffer);
-    console.log("Detected file type:", type);
+    // Use the MIME type provided by multer
+    const mimeType = req.file.mimetype;
+    const fileExtension = mimeType.split("/")[1];
 
-    // If file type detection fails, use the MIME type provided by multer
-    if (!type) {
-      console.log("File type detection failed. Using MIME type from multer.");
-      type = {
-        mime: req.file.mimetype,
-        ext: req.file.mimetype.split("/")[1],
-      };
-    }
+    console.log("MIME type:", mimeType);
+    console.log("File extension:", fileExtension);
 
-    console.log("Final file type:", type);
-
-    if (!allowedMimeTypes.includes(type.mime)) {
+    if (!allowedMimeTypes.includes(mimeType)) {
       console.log("Allowed MIME types:", allowedMimeTypes);
-      console.log("Uploaded file MIME type:", type.mime);
+      console.log("Uploaded file MIME type:", mimeType);
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
@@ -82,7 +74,6 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
 
     // Preserve original filename and add hash
     const originalName = path.parse(req.file.originalname).name;
-    const fileExtension = type.ext;
     const s3Key = `${originalName}_${hash}.${fileExtension}`;
     console.log("S3 Key:", s3Key);
 
@@ -91,7 +82,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
       Bucket: process.env.S3_BUCKET,
       Key: s3Key,
       Body: buffer,
-      ContentType: type.mime,
+      ContentType: mimeType,
     });
 
     const s3Result = await s3Client.send(putObjectCommand);
@@ -107,6 +98,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
         ImageHash: { S: hash },
         S3ObjectUrl: { S: s3ObjectUrl },
         OriginalFileName: { S: req.file.originalname },
+        MimeType: { S: mimeType },
       },
     });
 
@@ -116,14 +108,16 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     // Respond back to the client
     res.json({
       result: "Image processed and saved successfully",
-      fileType: type.mime,
+      fileType: mimeType,
       fileSize: buffer.length,
       s3ObjectUrl: s3ObjectUrl,
       originalFileName: req.file.originalname,
     });
   } catch (error) {
     console.error("Error processing image:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: error.message });
   }
 });
 
