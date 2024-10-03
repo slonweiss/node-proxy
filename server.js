@@ -24,13 +24,14 @@ export const handler = async (event, context) => {
       console.log("Processing file:", filename);
 
       const chunks = [];
-      file.on("data", (data) => {
-        chunks.push(data);
+      file.on("data", (chunk) => {
+        chunks.push(chunk);
       });
 
       file.on("end", () => {
         buffer = Buffer.concat(chunks);
         console.log("File size:", buffer.length);
+        console.log("File signature:", buffer.slice(0, 8).toString("hex"));
       });
     });
 
@@ -39,6 +40,11 @@ export const handler = async (event, context) => {
         if (!buffer) {
           throw new Error("No file data received");
         }
+
+        console.log("Buffer type:", typeof buffer);
+        console.log("Buffer is Buffer?", Buffer.isBuffer(buffer));
+        console.log("Buffer length:", buffer.length);
+        console.log("First 16 bytes:", buffer.slice(0, 16).toString("hex"));
 
         const fileTypeResult = await fileTypeFromBuffer(buffer);
         console.log(
@@ -81,6 +87,10 @@ export const handler = async (event, context) => {
         const originalName = path.parse(filename).name;
         const s3Key = `${originalName}_${hash}.${fileExtension}`;
         console.log("S3 Key:", s3Key);
+
+        if (!Buffer.isBuffer(buffer)) {
+          throw new Error("Invalid buffer object");
+        }
 
         const s3Client = new S3Client();
         const putObjectCommand = new PutObjectCommand({
@@ -133,7 +143,11 @@ export const handler = async (event, context) => {
       }
     });
 
-    bb.write(event.body);
+    let body = event.body;
+    if (event.isBase64Encoded) {
+      body = Buffer.from(event.body, "base64");
+    }
+    bb.write(body);
     bb.end();
   });
 };
