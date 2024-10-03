@@ -99,18 +99,19 @@ export const handler = async (event, context) => {
         await dynamoClient.send(putItemCommand);
         console.log("DynamoDB save successful");
 
-        resolve({
+        // Prepare the response
+        const response = {
           statusCode: 200,
-          body: JSON.stringify({
-            result: "Image processed and saved successfully",
-            fileType: mimeType,
-            fileSize: fileData.length,
-            s3ObjectUrl: s3ObjectUrl,
-            originalFileName: filename,
-          }),
-        });
+          headers: {
+            "Content-Type": mimeType,
+          },
+          body: fileData.toString("base64"),
+          isBase64Encoded: true,
+        };
+
+        resolve(response);
       } catch (error) {
-        console.error("Error processing image:", error.message);
+        console.error("Error processing image:", error);
         resolve({
           statusCode: 500,
           body: JSON.stringify({
