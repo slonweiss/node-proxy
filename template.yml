@@ -44,9 +44,20 @@ Resources:
       AttributeDefinitions:
         - AttributeName: ImageHash
           AttributeType: S
+        - AttributeName: PHash
+          AttributeType: S
+        - AttributeName: S3ObjectUrl
+          AttributeType: S
       KeySchema:
         - AttributeName: ImageHash
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: PHashIndex
+          KeySchema:
+            - AttributeName: PHash
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       BillingMode: PAY_PER_REQUEST
 
   LambdaPermission:
