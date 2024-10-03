@@ -3,7 +3,6 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import path from "path";
-import { PassThrough } from "stream";
 
 export const handler = async (event, context) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
@@ -60,6 +59,17 @@ export const handler = async (event, context) => {
         console.log("Content-Type:", mimeType);
         console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
 
+        // Decode base64 if the image is base64 encoded
+        if (fileData.toString("ascii").startsWith("data:image")) {
+          const base64Data = fileData.toString("ascii").split(",")[1];
+          fileData = Buffer.from(base64Data, "base64");
+          console.log("Decoded base64 image, new size:", fileData.length);
+          console.log(
+            "First 16 bytes after decoding:",
+            fileData.slice(0, 16).toString("hex")
+          );
+        }
+
         const hash = crypto
           .createHash("md5")
           .update(fileData)
@@ -100,7 +110,6 @@ export const handler = async (event, context) => {
         await dynamoClient.send(putItemCommand);
         console.log("DynamoDB save successful");
 
-        // Return a JSON response instead of the image data
         const response = {
           statusCode: 200,
           headers: {
@@ -131,29 +140,11 @@ export const handler = async (event, context) => {
       }
     });
 
-    busboy.on("error", (error) => {
-      console.error("Busboy error:", error);
-      resolve({
-        statusCode: 500,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-        body: JSON.stringify({ error: "File processing error" }),
-      });
-    });
+    // Parse the event body
+    const buffer = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64")
+      : Buffer.from(event.body);
 
-    // Create a stream from the body and pipe to busboy
-    if (event.isBase64Encoded) {
-      const buffer = Buffer.from(event.body, "base64");
-      const readable = new PassThrough();
-      readable.end(buffer);
-      readable.pipe(busboy);
-    } else {
-      const buffer = Buffer.from(event.body, "utf8");
-      const readable = new PassThrough();
-      readable.end(buffer);
-      readable.pipe(busboy);
-    }
+    busboy.end(buffer);
   });
 };
