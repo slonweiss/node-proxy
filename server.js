@@ -104,16 +104,27 @@ export const handler = async (event, context) => {
           statusCode: 200,
           headers: {
             "Content-Type": mimeType,
+            "Access-Control-Allow-Origin": "*", // Add CORS header
           },
           body: fileData.toString("base64"),
           isBase64Encoded: true,
         };
+
+        console.log("Response prepared:");
+        console.log("Status Code:", response.statusCode);
+        console.log("Headers:", JSON.stringify(response.headers));
+        console.log("Body length:", response.body.length);
+        console.log("Is Base64 Encoded:", response.isBase64Encoded);
 
         resolve(response);
       } catch (error) {
         console.error("Error processing image:", error);
         resolve({
           statusCode: 500,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*", // Add CORS header
+          },
           body: JSON.stringify({
             error: "Internal server error",
             details: error.message,
@@ -126,6 +137,10 @@ export const handler = async (event, context) => {
       console.error("Busboy error:", error);
       resolve({
         statusCode: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*", // Add CORS header
+        },
         body: JSON.stringify({ error: "File processing error" }),
       });
     });
