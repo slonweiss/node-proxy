@@ -28,7 +28,11 @@ const upload = multer({
 
 app.post("/analyze-image", upload.single("image"), async (req, res) => {
   try {
+    console.log("Request received:", req.body);
+    console.log("File object:", req.file);
+
     if (!req.file) {
+      console.error("No file uploaded");
       return res.status(400).json({ error: "No file uploaded" });
     }
 
@@ -36,18 +40,18 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     const originalFilename = req.file.originalname || "unknown";
     const contentType = req.file.mimetype;
 
-    console.log("Content-Type:", contentType);
+    console.log("Buffer length:", buffer.length);
     console.log("Original filename:", originalFilename);
+    console.log("Content-Type:", contentType);
 
     if (!contentType || !allowedMimeTypes.includes(contentType)) {
+      console.error("Unsupported file type:", contentType);
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
-    console.log("Buffer length:", buffer.length);
     console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
     const fileExtension = path.extname(originalFilename).slice(1);
-
     const hash = crypto
       .createHash("md5")
       .update(buffer)
@@ -66,6 +70,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
       ContentType: contentType,
     });
 
+    console.log("Sending PutObjectCommand to S3");
     const s3Result = await s3Client.send(putObjectCommand);
     console.log("S3 upload result:", s3Result);
 
