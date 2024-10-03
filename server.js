@@ -38,11 +38,35 @@ export const handler = async (event, context) => {
         console.log("Original filename:", filename);
 
         const fileTypeResult = await fileTypeFromBuffer(buffer);
-        const contentType = fileTypeResult
-          ? fileTypeResult.mime
-          : "application/octet-stream";
+        console.log("fileTypeResult:", fileTypeResult);
+
+        let contentType;
+        let fileExtension;
+
+        if (fileTypeResult) {
+          contentType = fileTypeResult.mime;
+          fileExtension = fileTypeResult.ext;
+        } else {
+          // Fallback to using the file extension from the filename
+          fileExtension = path.extname(filename).slice(1).toLowerCase();
+          switch (fileExtension) {
+            case "jpg":
+            case "jpeg":
+              contentType = "image/jpeg";
+              break;
+            case "png":
+              contentType = "image/png";
+              break;
+            case "webp":
+              contentType = "image/webp";
+              break;
+            default:
+              contentType = "application/octet-stream";
+          }
+        }
 
         console.log("Detected Content-Type:", contentType);
+        console.log("File Extension:", fileExtension);
 
         const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
         if (!allowedMimeTypes.includes(contentType)) {
@@ -51,9 +75,6 @@ export const handler = async (event, context) => {
 
         console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
-        const fileExtension = fileTypeResult
-          ? fileTypeResult.ext
-          : path.extname(filename).slice(1) || "jpg";
         const hash = crypto
           .createHash("md5")
           .update(buffer)
