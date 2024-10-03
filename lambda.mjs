@@ -1,8 +1,5 @@
-import awsServerlessExpress from "aws-serverless-express";
-import { app } from "./server.js";
+import { handler as serverHandler } from "./server.js";
 
-const server = awsServerlessExpress.createServer(app);
-
-export const handler = (event, context) => {
-  awsServerlessExpress.proxy(server, event, context);
+export const handler = async (event, context) => {
+  return await serverHandler(event, context);
 };
