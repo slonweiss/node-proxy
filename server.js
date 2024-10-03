@@ -45,6 +45,7 @@ export const handler = async (event, context) => {
       file.on("end", () => {
         fileData = Buffer.concat(chunks);
         console.log("File received, size:", fileData.length);
+        console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
       });
     });
 
@@ -58,17 +59,6 @@ export const handler = async (event, context) => {
         console.log("File size:", fileData.length);
         console.log("Content-Type:", mimeType);
         console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
-
-        // Decode base64 if the image is base64 encoded
-        if (fileData.toString("ascii").startsWith("data:image")) {
-          const base64Data = fileData.toString("ascii").split(",")[1];
-          fileData = Buffer.from(base64Data, "base64");
-          console.log("Decoded base64 image, new size:", fileData.length);
-          console.log(
-            "First 16 bytes after decoding:",
-            fileData.slice(0, 16).toString("hex")
-          );
-        }
 
         const hash = crypto
           .createHash("md5")
@@ -143,8 +133,9 @@ export const handler = async (event, context) => {
     // Parse the event body
     const buffer = event.isBase64Encoded
       ? Buffer.from(event.body, "base64")
-      : Buffer.from(event.body);
+      : Buffer.from(event.body, "binary");
 
-    busboy.end(buffer);
+    busboy.write(buffer);
+    busboy.end();
   });
 };
