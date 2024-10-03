@@ -19,6 +19,7 @@
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "file-type": "^19.5.0",
+    "lambda-multipart-parser": "^1.0.1",
     "multer": "^1.4.5-lts.1",
     "raw-body": "^3.0.0",
     "sanitize-filename": "^1.6.3"
