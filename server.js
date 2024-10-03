@@ -3,6 +3,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import path from "path";
+import { PassThrough } from "stream";
 
 export const handler = async (event, context) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
@@ -99,22 +100,19 @@ export const handler = async (event, context) => {
         await dynamoClient.send(putItemCommand);
         console.log("DynamoDB save successful");
 
-        // Prepare the response
+        // Return a JSON response instead of the image data
         const response = {
           statusCode: 200,
           headers: {
-            "Content-Type": mimeType,
-            "Access-Control-Allow-Origin": "*", // Add CORS header
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
           },
-          body: fileData.toString("base64"),
-          isBase64Encoded: true,
+          body: JSON.stringify({
+            message: "Image uploaded successfully",
+            imageHash: hash,
+            s3ObjectUrl: s3ObjectUrl,
+          }),
         };
-
-        console.log("Response prepared:");
-        console.log("Status Code:", response.statusCode);
-        console.log("Headers:", JSON.stringify(response.headers));
-        console.log("Body length:", response.body.length);
-        console.log("Is Base64 Encoded:", response.isBase64Encoded);
 
         resolve(response);
       } catch (error) {
@@ -123,7 +121,7 @@ export const handler = async (event, context) => {
           statusCode: 500,
           headers: {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*", // Add CORS header
+            "Access-Control-Allow-Origin": "*",
           },
           body: JSON.stringify({
             error: "Internal server error",
@@ -139,19 +137,23 @@ export const handler = async (event, context) => {
         statusCode: 500,
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*", // Add CORS header
+          "Access-Control-Allow-Origin": "*",
         },
         body: JSON.stringify({ error: "File processing error" }),
       });
     });
 
-    // Check if the body is base64 encoded
+    // Create a stream from the body and pipe to busboy
     if (event.isBase64Encoded) {
       const buffer = Buffer.from(event.body, "base64");
-      busboy.write(buffer);
+      const readable = new PassThrough();
+      readable.end(buffer);
+      readable.pipe(busboy);
     } else {
-      busboy.write(event.body);
+      const buffer = Buffer.from(event.body, "utf8");
+      const readable = new PassThrough();
+      readable.end(buffer);
+      readable.pipe(busboy);
     }
-    busboy.end();
   });
 };
