@@ -76,8 +76,11 @@ export const app = express();
 
       // Detect the file type using fileTypeFromBuffer
       const type = await fileTypeFromBuffer(buffer);
+      console.log("Detected file type:", type);
 
       if (!type || !allowedMimeTypes.includes(type.mime)) {
+        console.log("Allowed MIME types:", allowedMimeTypes);
+        console.log("Uploaded file MIME type:", type ? type.mime : "undefined");
         throw new Error("Unsupported file type");
       }
 
@@ -120,4 +123,6 @@ export const app = express();
       res.status(400).json({ error: error.message });
     }
   });
+
+  console.log("Uploaded file details:", JSON.stringify(req.file, null, 2));
 })();
