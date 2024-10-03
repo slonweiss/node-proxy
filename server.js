@@ -5,11 +5,22 @@ import crypto from "crypto";
 import path from "path";
 
 export const handler = async (event, context) => {
-  console.log("Received event");
+  console.log("Received event:", JSON.stringify(event, null, 2));
+  console.log("Headers:", JSON.stringify(event.headers, null, 2));
+  console.log("Body length:", event.body ? event.body.length : 0);
 
   return new Promise((resolve, reject) => {
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
+    console.log("Content-Type:", contentType);
+
+    if (!contentType || !contentType.includes("multipart/form-data")) {
+      console.error("Invalid or missing Content-Type header");
+      return resolve({
+        statusCode: 400,
+        body: JSON.stringify({ error: "Invalid Content-Type" }),
+      });
+    }
 
     const busboy = Busboy({
       headers: {
@@ -22,6 +33,7 @@ export const handler = async (event, context) => {
     let mimeType = null;
 
     busboy.on("file", (fieldname, file, info) => {
+      console.log("File event triggered");
       filename = info.filename;
       mimeType = info.mimeType;
       const chunks = [];
@@ -32,10 +44,12 @@ export const handler = async (event, context) => {
 
       file.on("end", () => {
         fileData = Buffer.concat(chunks);
+        console.log("File received, size:", fileData.length);
       });
     });
 
     busboy.on("finish", async () => {
+      console.log("Busboy finished");
       try {
         if (!fileData) {
           throw new Error("No file data received");
@@ -107,7 +121,21 @@ export const handler = async (event, context) => {
       }
     });
 
-    busboy.write(Buffer.from(event.body, "base64"));
+    busboy.on("error", (error) => {
+      console.error("Busboy error:", error);
+      resolve({
+        statusCode: 500,
+        body: JSON.stringify({ error: "File processing error" }),
+      });
+    });
+
+    // Check if the body is base64 encoded
+    if (event.isBase64Encoded) {
+      const buffer = Buffer.from(event.body, "base64");
+      busboy.write(buffer);
+    } else {
+      busboy.write(event.body);
+    }
     busboy.end();
   });
 };
