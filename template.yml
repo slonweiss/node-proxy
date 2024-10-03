@@ -46,8 +46,6 @@ Resources:
           AttributeType: S
         - AttributeName: PHash
           AttributeType: S
-        - AttributeName: S3ObjectUrl
-          AttributeType: S
       KeySchema:
         - AttributeName: ImageHash
           KeyType: HASH
