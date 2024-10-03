@@ -4,6 +4,8 @@ import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import crypto from "crypto";
+import path from "path";
 
 // Export the app
 export const app = express();
@@ -46,6 +48,8 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     }
 
     const buffer = req.file.buffer;
+    console.log("Buffer length:", buffer.length);
+    console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
     // Detect the file type using fileTypeFromBuffer
     let type = await fileTypeFromBuffer(buffer);
@@ -69,10 +73,20 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     }
 
     // Generate a unique hash for the file
-    const hash = Buffer.from(buffer).toString("base64").substring(0, 10);
+    const hash = crypto
+      .createHash("md5")
+      .update(buffer)
+      .digest("hex")
+      .slice(0, 10);
+    console.log("Generated hash:", hash);
+
+    // Preserve original filename and add hash
+    const originalName = path.parse(req.file.originalname).name;
+    const fileExtension = type.ext;
+    const s3Key = `${originalName}_${hash}.${fileExtension}`;
+    console.log("S3 Key:", s3Key);
 
     // Upload to S3
-    const s3Key = `${hash}.${type.ext}`;
     const putObjectCommand = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,
       Key: s3Key,
@@ -80,9 +94,11 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
       ContentType: type.mime,
     });
 
-    await s3Client.send(putObjectCommand);
+    const s3Result = await s3Client.send(putObjectCommand);
+    console.log("S3 upload result:", s3Result);
 
     const s3ObjectUrl = `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${s3Key}`;
+    console.log("S3 Object URL:", s3ObjectUrl);
 
     // Write to DynamoDB
     const putItemCommand = new PutItemCommand({
@@ -90,10 +106,12 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
       Item: {
         ImageHash: { S: hash },
         S3ObjectUrl: { S: s3ObjectUrl },
+        OriginalFileName: { S: req.file.originalname },
       },
     });
 
-    await dynamoClient.send(putItemCommand);
+    const dynamoResult = await dynamoClient.send(putItemCommand);
+    console.log("DynamoDB result:", dynamoResult);
 
     // Respond back to the client
     res.json({
@@ -101,6 +119,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
       fileType: type.mime,
       fileSize: buffer.length,
       s3ObjectUrl: s3ObjectUrl,
+      originalFileName: req.file.originalname,
     });
   } catch (error) {
     console.error("Error processing image:", error);
