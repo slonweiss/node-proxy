@@ -2,105 +2,82 @@ import Busboy from "busboy";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
-import path from "path";
+
+const s3Client = new S3Client({ region: "us-west-2" });
+const dynamoDBClient = new DynamoDBClient({ region: "us-west-2" });
 
 export const handler = async (event, context) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
   console.log("Headers:", JSON.stringify(event.headers, null, 2));
   console.log("Body length:", event.body ? event.body.length : 0);
+  console.log("Content-Type:", event.headers["content-type"]);
 
   return new Promise((resolve, reject) => {
-    const contentType =
-      event.headers["content-type"] || event.headers["Content-Type"];
-    console.log("Content-Type:", contentType);
-
-    if (!contentType || !contentType.includes("multipart/form-data")) {
-      console.error("Invalid or missing Content-Type header");
-      return resolve({
-        statusCode: 400,
-        body: JSON.stringify({ error: "Invalid Content-Type" }),
-      });
-    }
-
-    const busboy = Busboy({
-      headers: {
-        "content-type": contentType,
-      },
-    });
-
+    const busboy = Busboy({ headers: event.headers });
     let fileData = null;
-    let filename = null;
-    let mimeType = null;
+    let fileName = null;
 
-    busboy.on("file", (fieldname, file, info) => {
+    busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
       console.log("File event triggered");
-      filename = info.filename;
-      mimeType = info.mimeType;
+      fileName = filename;
       const chunks = [];
 
-      file.on("data", (chunk) => {
-        chunks.push(chunk);
+      file.on("data", (data) => {
+        chunks.push(data);
       });
 
       file.on("end", () => {
         fileData = Buffer.concat(chunks);
-        console.log("File received, size:", fileData.length);
-        console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
+        console.log(`File received, size: ${fileData.length}`);
+        console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
       });
     });
 
     busboy.on("finish", async () => {
-      console.log("Busboy finished");
+      if (!fileData) {
+        reject(new Error("No file data received"));
+        return;
+      }
+
+      const fileHash = crypto
+        .createHash("md5")
+        .update(fileData)
+        .digest("hex")
+        .slice(0, 10);
+      const s3Key = `${fileName.split(".")[0]}_${fileHash}.${fileName
+        .split(".")
+        .pop()}`;
+
       try {
-        if (!fileData) {
-          throw new Error("No file data received");
-        }
-
-        console.log("File size:", fileData.length);
-        console.log("Content-Type:", mimeType);
-        console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
-
-        const hash = crypto
-          .createHash("md5")
-          .update(fileData)
-          .digest("hex")
-          .slice(0, 10);
-
-        const fileExtension = path.extname(filename).slice(1).toLowerCase();
-
-        const s3Key = `${path.parse(filename).name}_${hash}.${fileExtension}`;
-        console.log("S3 Key:", s3Key);
-
-        const s3Client = new S3Client();
-        const putObjectCommand = new PutObjectCommand({
-          Bucket: process.env.S3_BUCKET,
-          Key: s3Key,
-          Body: fileData,
-          ContentType: mimeType,
-        });
-
+        // Upload to S3
         console.log("Uploading to S3...");
-        await s3Client.send(putObjectCommand);
+        await s3Client.send(
+          new PutObjectCommand({
+            Bucket: "realeyes-ai-images",
+            Key: s3Key,
+            Body: fileData,
+            ContentType: event.headers["content-type"],
+          })
+        );
         console.log("S3 upload successful");
 
-        const s3ObjectUrl = `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${s3Key}`;
-
-        const dynamoClient = new DynamoDBClient();
-        const putItemCommand = new PutItemCommand({
-          TableName: process.env.DYNAMODB_TABLE,
-          Item: {
-            ImageHash: { S: hash },
-            S3ObjectUrl: { S: s3ObjectUrl },
-            OriginalFileName: { S: filename },
-            MimeType: { S: mimeType },
-          },
-        });
-
+        // Save to DynamoDB
         console.log("Saving to DynamoDB...");
-        await dynamoClient.send(putItemCommand);
+        await dynamoDBClient.send(
+          new PutItemCommand({
+            TableName: "realeyes-ai-images",
+            Item: {
+              imageHash: { S: fileHash },
+              s3ObjectUrl: {
+                S: `https://realeyes-ai-images.s3.amazonaws.com/${s3Key}`,
+              },
+              uploadDate: { S: new Date().toISOString() },
+            },
+          })
+        );
         console.log("DynamoDB save successful");
 
-        const response = {
+        resolve({
           statusCode: 200,
           headers: {
             "Content-Type": "application/json",
@@ -108,25 +85,13 @@ export const handler = async (event, context) => {
           },
           body: JSON.stringify({
             message: "Image uploaded successfully",
-            imageHash: hash,
-            s3ObjectUrl: s3ObjectUrl,
-          }),
-        };
-
-        resolve(response);
-      } catch (error) {
-        console.error("Error processing image:", error);
-        resolve({
-          statusCode: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-          body: JSON.stringify({
-            error: "Internal server error",
-            details: error.message,
+            imageHash: fileHash,
+            s3ObjectUrl: `https://realeyes-ai-images.s3.amazonaws.com/${s3Key}`,
           }),
         });
+      } catch (error) {
+        console.error("Error:", error);
+        reject(error);
       }
     });
 
