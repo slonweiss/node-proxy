@@ -5,53 +5,50 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import path from "path";
-import multer from "multer";
 
-// Export the app
-export const app = express();
+export const handler = async (event, context) => {
+  console.log("Received event:", JSON.stringify(event, null, 2));
 
-// Initialize CORS
-app.use(cors());
-
-// Define allowed MIME types
-const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
-
-// Initialize S3 and DynamoDB clients
-const s3Client = new S3Client();
-const dynamoClient = new DynamoDBClient();
-
-// Configure multer for handling multipart/form-data
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-});
-
-app.post("/analyze-image", upload.single("image"), async (req, res) => {
   try {
-    console.log("Request received:", req.body);
-    console.log("File object:", req.file);
+    let buffer;
+    let contentType;
+    let originalFilename;
 
-    if (!req.file) {
-      console.error("No file uploaded");
-      return res.status(400).json({ error: "No file uploaded" });
+    if (event.isBase64Encoded) {
+      buffer = Buffer.from(event.body, "base64");
+      contentType = event.headers["content-type"];
+
+      // Extract filename from content-disposition header if available
+      const contentDisposition = event.headers["content-disposition"];
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+        originalFilename = filenameMatch ? filenameMatch[1] : "unknown";
+      } else {
+        originalFilename = "unknown";
+      }
+    } else {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Expected base64 encoded image data" }),
+      };
     }
-
-    const buffer = req.file.buffer;
-    const originalFilename = req.file.originalname || "unknown";
-    const contentType = req.file.mimetype;
 
     console.log("Buffer length:", buffer.length);
     console.log("Original filename:", originalFilename);
     console.log("Content-Type:", contentType);
 
+    const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!contentType || !allowedMimeTypes.includes(contentType)) {
       console.error("Unsupported file type:", contentType);
-      return res.status(400).json({ error: "Unsupported file type" });
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Unsupported file type" }),
+      };
     }
 
     console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
-    const fileExtension = path.extname(originalFilename).slice(1);
+    const fileExtension = path.extname(originalFilename).slice(1) || "jpg";
     const hash = crypto
       .createHash("md5")
       .update(buffer)
@@ -63,6 +60,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     const s3Key = `${originalName}_${hash}.${fileExtension}`;
     console.log("S3 Key:", s3Key);
 
+    const s3Client = new S3Client();
     const putObjectCommand = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,
       Key: s3Key,
@@ -77,6 +75,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     const s3ObjectUrl = `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${s3Key}`;
     console.log("S3 Object URL:", s3ObjectUrl);
 
+    const dynamoClient = new DynamoDBClient();
     const putItemCommand = new PutItemCommand({
       TableName: process.env.DYNAMODB_TABLE,
       Item: {
@@ -90,19 +89,24 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     const dynamoResult = await dynamoClient.send(putItemCommand);
     console.log("DynamoDB result:", dynamoResult);
 
-    res.json({
-      result: "Image processed and saved successfully",
-      fileType: contentType,
-      fileSize: buffer.length,
-      s3ObjectUrl: s3ObjectUrl,
-      originalFileName: originalFilename,
-    });
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        result: "Image processed and saved successfully",
+        fileType: contentType,
+        fileSize: buffer.length,
+        s3ObjectUrl: s3ObjectUrl,
+        originalFileName: originalFilename,
+      }),
+    };
   } catch (error) {
     console.error("Error processing image:", error);
-    res
-      .status(500)
-      .json({ error: "Internal server error", details: error.message });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Internal server error",
+        details: error.message,
+      }),
+    };
   }
-});
-
-console.log("Server initialized and ready to handle requests");
+};
