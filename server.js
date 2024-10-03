@@ -48,12 +48,23 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     const buffer = req.file.buffer;
 
     // Detect the file type using fileTypeFromBuffer
-    const type = await fileTypeFromBuffer(buffer);
+    let type = await fileTypeFromBuffer(buffer);
     console.log("Detected file type:", type);
 
-    if (!type || !allowedMimeTypes.includes(type.mime)) {
+    // If file type detection fails, use the MIME type provided by multer
+    if (!type) {
+      console.log("File type detection failed. Using MIME type from multer.");
+      type = {
+        mime: req.file.mimetype,
+        ext: req.file.mimetype.split("/")[1],
+      };
+    }
+
+    console.log("Final file type:", type);
+
+    if (!allowedMimeTypes.includes(type.mime)) {
       console.log("Allowed MIME types:", allowedMimeTypes);
-      console.log("Uploaded file MIME type:", type ? type.mime : "undefined");
+      console.log("Uploaded file MIME type:", type.mime);
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
