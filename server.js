@@ -37,21 +37,23 @@ export const handler = async (event, context) => {
         console.log("Buffer length:", buffer.length);
         console.log("Original filename:", filename);
 
-        const fileType = await fileTypeFromBuffer(buffer);
-        const contentType = fileType
-          ? fileType.mime
+        const fileTypeResult = await fileTypeFromBuffer(buffer);
+        const contentType = fileTypeResult
+          ? fileTypeResult.mime
           : "application/octet-stream";
 
-        console.log("Content-Type:", contentType);
+        console.log("Detected Content-Type:", contentType);
 
         const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
         if (!allowedMimeTypes.includes(contentType)) {
-          throw new Error("Unsupported file type");
+          throw new Error(`Unsupported file type: ${contentType}`);
         }
 
         console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
 
-        const fileExtension = path.extname(filename).slice(1) || "jpg";
+        const fileExtension = fileTypeResult
+          ? fileTypeResult.ext
+          : path.extname(filename).slice(1) || "jpg";
         const hash = crypto
           .createHash("md5")
           .update(buffer)
