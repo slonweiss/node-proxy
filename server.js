@@ -7,8 +7,12 @@ import crypto from "crypto";
 import path from "path";
 import busboy from "busboy";
 
+function truncate(str, n) {
+  return str.length > n ? str.slice(0, n - 1) + "..." : str;
+}
+
 export const handler = async (event, context) => {
-  console.log("Received event:", JSON.stringify(event, null, 2));
+  console.log("Received event:", truncate(JSON.stringify(event), 200));
 
   return new Promise((resolve, reject) => {
     const bb = busboy({ headers: event.headers });
@@ -16,15 +20,17 @@ export const handler = async (event, context) => {
     let filename;
 
     bb.on("file", (fieldname, file, info) => {
-      const chunks = [];
       filename = info.filename;
+      console.log("Processing file:", filename);
 
+      const chunks = [];
       file.on("data", (data) => {
         chunks.push(data);
       });
 
       file.on("end", () => {
         buffer = Buffer.concat(chunks);
+        console.log("File size:", buffer.length);
       });
     });
 
@@ -34,11 +40,11 @@ export const handler = async (event, context) => {
           throw new Error("No file data received");
         }
 
-        console.log("Buffer length:", buffer.length);
-        console.log("Original filename:", filename);
-
         const fileTypeResult = await fileTypeFromBuffer(buffer);
-        console.log("fileTypeResult:", fileTypeResult);
+        console.log(
+          "Detected file type:",
+          fileTypeResult ? fileTypeResult.mime : "unknown"
+        );
 
         let contentType;
         let fileExtension;
@@ -47,7 +53,6 @@ export const handler = async (event, context) => {
           contentType = fileTypeResult.mime;
           fileExtension = fileTypeResult.ext;
         } else {
-          // Fallback to using the file extension from the filename
           fileExtension = path.extname(filename).slice(1).toLowerCase();
           switch (fileExtension) {
             case "jpg":
@@ -61,26 +66,17 @@ export const handler = async (event, context) => {
               contentType = "image/webp";
               break;
             default:
-              contentType = "application/octet-stream";
+              throw new Error(`Unsupported file type: ${fileExtension}`);
           }
         }
 
-        console.log("Detected Content-Type:", contentType);
-        console.log("File Extension:", fileExtension);
-
-        const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
-        if (!allowedMimeTypes.includes(contentType)) {
-          throw new Error(`Unsupported file type: ${contentType}`);
-        }
-
-        console.log("Buffer preview:", buffer.toString("hex").slice(0, 50));
+        console.log("Content-Type:", contentType);
 
         const hash = crypto
           .createHash("md5")
           .update(buffer)
           .digest("hex")
           .slice(0, 10);
-        console.log("Generated hash:", hash);
 
         const originalName = path.parse(filename).name;
         const s3Key = `${originalName}_${hash}.${fileExtension}`;
@@ -94,12 +90,11 @@ export const handler = async (event, context) => {
           ContentType: contentType,
         });
 
-        console.log("Sending PutObjectCommand to S3");
+        console.log("Uploading to S3...");
         const s3Result = await s3Client.send(putObjectCommand);
-        console.log("S3 upload result:", s3Result);
+        console.log("S3 upload successful");
 
         const s3ObjectUrl = `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${s3Key}`;
-        console.log("S3 Object URL:", s3ObjectUrl);
 
         const dynamoClient = new DynamoDBClient();
         const putItemCommand = new PutItemCommand({
@@ -112,8 +107,9 @@ export const handler = async (event, context) => {
           },
         });
 
-        const dynamoResult = await dynamoClient.send(putItemCommand);
-        console.log("DynamoDB result:", dynamoResult);
+        console.log("Saving to DynamoDB...");
+        await dynamoClient.send(putItemCommand);
+        console.log("DynamoDB save successful");
 
         resolve({
           statusCode: 200,
@@ -126,7 +122,7 @@ export const handler = async (event, context) => {
           }),
         });
       } catch (error) {
-        console.error("Error processing image:", error);
+        console.error("Error processing image:", error.message);
         resolve({
           statusCode: 500,
           body: JSON.stringify({
