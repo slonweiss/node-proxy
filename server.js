@@ -1,10 +1,7 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import fs from "fs/promises";
-import path from "path";
 import { fileTypeFromBuffer } from "file-type";
-import { fileURLToPath } from "url";
 import sanitize from "sanitize-filename";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -18,19 +15,6 @@ import {
 export const app = express();
 
 (async () => {
-  // Define __dirname in ESM
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-
-  const receivedDir = path.join(__dirname, "received");
-
-  // Ensure the received directory exists
-  try {
-    await fs.access(receivedDir);
-  } catch {
-    await fs.mkdir(receivedDir, { recursive: true });
-  }
-
   // Initialize CORS
   app.use(cors());
 
@@ -46,26 +30,10 @@ export const app = express();
     cb(null, true);
   };
 
-  // Modify the storage configuration
-  const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, receivedDir);
-    },
-    filename: function (req, file, cb) {
-      const originalName = sanitize(file.originalname);
-      const fileExtension = path.extname(originalName);
-      const baseName = path.basename(originalName, fileExtension);
-      const safeName = `${baseName}-${Date.now()}${fileExtension}`;
+  // Use memory storage instead of disk storage
+  const storage = multer.memoryStorage();
 
-      console.log("Original filename:", file.originalname);
-      console.log("Sanitized filename:", originalName);
-      console.log("Safe name:", safeName);
-
-      cb(null, safeName);
-    },
-  });
-
-  // Initialize multer with storage, file filter, and size limit
+  // Initialize multer with memory storage, file filter, and size limit
   const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
@@ -74,7 +42,6 @@ export const app = express();
 
   app.post("/analyze-image", upload.single("image"), async (req, res) => {
     console.log("Request received:", req.body);
-    console.log("Files received:", req.files);
     console.log("File received:", req.file);
 
     try {
@@ -82,8 +49,8 @@ export const app = express();
         throw new Error("No file uploaded");
       }
 
-      // Read the file buffer
-      const buffer = await fs.readFile(req.file.path);
+      // Use the file buffer directly
+      const buffer = req.file.buffer;
 
       // Hash the image
       const hash = crypto.createHash("sha256").update(buffer).digest("hex");
