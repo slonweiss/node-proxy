@@ -113,7 +113,7 @@ export const handler = async (event) => {
       new PutItemCommand({
         TableName: dynamoDBTableName,
         Item: {
-          imageHash: { S: md5Hash },
+          ImageHash: { S: md5Hash }, // Changed from imageHash to ImageHash
           s3ObjectUrl: { S: s3ObjectUrl },
           uploadDate: { S: new Date().toISOString() },
           sha256Hash: { S: sha256Hash },
@@ -139,6 +139,7 @@ export const handler = async (event) => {
     };
   } catch (error) {
     console.error("Error processing image:", error);
+    console.error("Error details:", JSON.stringify(error, null, 2));
     return {
       statusCode: 500,
       headers: {
