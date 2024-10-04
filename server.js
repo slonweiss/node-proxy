@@ -4,8 +4,16 @@ import crypto from "crypto";
 import { parse } from "lambda-multipart-parser";
 import path from "path";
 
-const s3Client = new S3Client({ region: "us-west-2" });
-const dynamoDBClient = new DynamoDBClient({ region: "us-west-2" });
+// Use environment variables
+const s3BucketName = process.env.S3_BUCKET;
+const dynamoDBTableName = process.env.DYNAMODB_TABLE;
+const awsRegion = process.env.AWS_REGION || "us-east-2"; // Default to us-east-2 if not set
+
+const s3Client = new S3Client({
+  region: awsRegion,
+  forcePathStyle: true, // Needed for correct URL formatting
+});
+const dynamoDBClient = new DynamoDBClient({ region: awsRegion });
 
 const allowedOrigins = [
   "https://www.linkedin.com",
@@ -90,7 +98,7 @@ export const handler = async (event) => {
     console.log("Uploading to S3...");
     await s3Client.send(
       new PutObjectCommand({
-        Bucket: "realeyes-ai-images",
+        Bucket: s3BucketName,
         Key: s3Key,
         Body: fileData,
         ContentType: mimeType,
@@ -98,12 +106,12 @@ export const handler = async (event) => {
     );
     console.log("S3 upload successful");
 
-    const s3ObjectUrl = `https://realeyes-ai-images.s3.amazonaws.com/${s3Key}`;
+    const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
 
     console.log("Saving to DynamoDB...");
     await dynamoDBClient.send(
       new PutItemCommand({
-        TableName: "realeyes-ai-images",
+        TableName: dynamoDBTableName,
         Item: {
           imageHash: { S: md5Hash },
           s3ObjectUrl: { S: s3ObjectUrl },
