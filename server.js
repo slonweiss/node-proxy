@@ -180,12 +180,11 @@ export const handler = async (event) => {
     } else {
       // Proceed with upload and saving to DynamoDB
       console.log("Uploading to S3...");
+      const s3Key = `${sha256Hash.slice(0, 16)}_${path.basename(fileName)}`;
       await s3Client.send(
         new PutObjectCommand({
           Bucket: s3BucketName,
-          Key: `${sha256Hash.slice(0, 16)}_${fileName}${path.extname(
-            fileName
-          )}`,
+          Key: s3Key,
           Body: fileData,
           ContentType: mimeType,
         })
@@ -197,9 +196,7 @@ export const handler = async (event) => {
       const getObjectResult = await s3Client.send(
         new GetObjectCommand({
           Bucket: s3BucketName,
-          Key: `${sha256Hash.slice(0, 16)}_${fileName}${path.extname(
-            fileName
-          )}`,
+          Key: s3Key,
         })
       );
 
@@ -214,10 +211,7 @@ export const handler = async (event) => {
         .digest("hex");
       console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
 
-      const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${sha256Hash.slice(
-        0,
-        16
-      )}_${fileName}${path.extname(fileName)}`;
+      const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
 
       console.log("Saving to DynamoDB...");
       await dynamoDBClient.send(
