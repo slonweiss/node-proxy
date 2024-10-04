@@ -55,6 +55,19 @@ const calculatePHash = async (buffer) => {
   return imghash.hash(resizedBuffer);
 };
 
+function getFileExtensionFromMimeType(mimeType) {
+  const mimeToExt = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+  };
+  return mimeToExt[mimeType] || "";
+}
+
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
@@ -240,7 +253,9 @@ export const handler = async (event) => {
     } else {
       // Proceed with upload and saving to DynamoDB
       console.log("Uploading to S3...");
-      const s3Key = `${sha256Hash.slice(0, 16)}_${path.basename(fileName)}`;
+      const fileExtension =
+        path.extname(fileName) || getFileExtensionFromMimeType(mimeType);
+      const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
       await s3Client.send(
         new PutObjectCommand({
           Bucket: s3BucketName,
