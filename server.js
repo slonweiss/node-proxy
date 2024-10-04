@@ -8,6 +8,7 @@ import {
   PutItemCommand,
   GetItemCommand,
   QueryCommand,
+  UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import { parse } from "lambda-multipart-parser";
@@ -149,6 +150,34 @@ export const handler = async (event) => {
 
     if (exactDuplicate.Item) {
       console.log("Duplicate file detected");
+
+      const updatedOriginWebsites = new Set(
+        exactDuplicate.Item.originWebsites
+          ? exactDuplicate.Item.originWebsites.SS
+          : []
+      );
+      updatedOriginWebsites.add(origin);
+
+      // Update DynamoDB with the new origin website and increment requestCount
+      const updateResult = await dynamoDBClient.send(
+        new UpdateItemCommand({
+          TableName: dynamoDBTableName,
+          Key: {
+            ImageHash: { S: sha256Hash },
+          },
+          UpdateExpression:
+            "SET originWebsites = :websites, requestCount = if_not_exists(requestCount, :start) + :inc",
+          ExpressionAttributeValues: {
+            ":websites": { SS: Array.from(updatedOriginWebsites) },
+            ":start": { N: "0" },
+            ":inc": { N: "1" },
+          },
+          ReturnValues: "ALL_NEW",
+        })
+      );
+
+      const updatedItem = updateResult.Attributes;
+
       return {
         statusCode: 200,
         headers: {
@@ -159,11 +188,40 @@ export const handler = async (event) => {
           message: "File already exists",
           imageHash: sha256Hash,
           pHash: pHash,
-          s3ObjectUrl: exactDuplicate.Item.s3ObjectUrl.S,
+          s3ObjectUrl: updatedItem.s3ObjectUrl.S,
+          originWebsites: updatedItem.originWebsites.SS,
+          requestCount: parseInt(updatedItem.requestCount.N),
         }),
       };
     } else if (similarImages.Items && similarImages.Items.length > 0) {
       console.log("Similar image detected");
+
+      const similarImage = similarImages.Items[0];
+      const updatedOriginWebsites = new Set(
+        similarImage.originWebsites ? similarImage.originWebsites.SS : []
+      );
+      updatedOriginWebsites.add(origin);
+
+      // Update DynamoDB with the new origin website and increment requestCount
+      const updateResult = await dynamoDBClient.send(
+        new UpdateItemCommand({
+          TableName: dynamoDBTableName,
+          Key: {
+            ImageHash: { S: similarImage.ImageHash.S },
+          },
+          UpdateExpression:
+            "SET originWebsites = :websites, requestCount = if_not_exists(requestCount, :start) + :inc",
+          ExpressionAttributeValues: {
+            ":websites": { SS: Array.from(updatedOriginWebsites) },
+            ":start": { N: "0" },
+            ":inc": { N: "1" },
+          },
+          ReturnValues: "ALL_NEW",
+        })
+      );
+
+      const updatedItem = updateResult.Attributes;
+
       return {
         statusCode: 200,
         headers: {
@@ -174,7 +232,9 @@ export const handler = async (event) => {
           message: "Similar file exists",
           imageHash: sha256Hash,
           pHash: pHash,
-          s3ObjectUrl: similarImages.Items[0].s3ObjectUrl.S,
+          s3ObjectUrl: updatedItem.s3ObjectUrl.S,
+          originWebsites: updatedItem.originWebsites.SS,
+          requestCount: parseInt(updatedItem.requestCount.N),
         }),
       };
     } else {
@@ -223,11 +283,13 @@ export const handler = async (event) => {
             s3ObjectUrl: { S: s3ObjectUrl },
             uploadDate: { S: new Date().toISOString() },
             originalFileName: { S: fileName },
+            originWebsites: { SS: [origin] },
+            requestCount: { N: "1" }, // Initialize requestCount to 1
           },
         })
       );
 
-      // Modify the success response to include pHash
+      // Modify the success response to include requestCount
       return {
         statusCode: 200,
         headers: {
@@ -243,6 +305,8 @@ export const handler = async (event) => {
           s3ObjectUrl: s3ObjectUrl,
           dataMatch: isDataEqual,
           originalFileName: fileName,
+          originWebsites: [origin],
+          requestCount: 1,
         }),
       };
     }
