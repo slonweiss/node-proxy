@@ -3,10 +3,17 @@ import {
   PutObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBClient,
+  PutItemCommand,
+  GetItemCommand,
+  QueryCommand,
+} from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import { parse } from "lambda-multipart-parser";
 import path from "path";
+import imghash from "imghash";
+import sharp from "sharp";
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -37,6 +44,15 @@ const streamToBuffer = (stream) =>
     stream.on("error", reject);
     stream.on("end", () => resolve(Buffer.concat(chunks)));
   });
+
+// Add this function after the streamToBuffer function
+const calculatePHash = async (buffer) => {
+  const resizedBuffer = await sharp(buffer)
+    .resize(32, 32, { fit: "fill" })
+    .grayscale()
+    .toBuffer();
+  return imghash.hash(resizedBuffer);
+};
 
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
@@ -99,84 +115,143 @@ export const handler = async (event) => {
       fileData = Buffer.from(fileData, "binary");
     }
 
-    // Compute SHA-256 hash
+    // Calculate both hashes
     const sha256Hash = crypto
       .createHash("sha256")
       .update(fileData)
       .digest("hex");
+    const pHash = await calculatePHash(fileData);
+
     console.log(`Received image SHA-256 hash: ${sha256Hash}`);
+    console.log(`Calculated pHash: ${pHash}`);
 
-    // Compute MD5 hash for S3 key
-    const md5Hash = crypto
-      .createHash("md5")
-      .update(fileData)
-      .digest("hex")
-      .slice(0, 10);
+    // Perform parallel checks
+    const [exactDuplicate, similarImages] = await Promise.all([
+      dynamoDBClient.send(
+        new GetItemCommand({
+          TableName: dynamoDBTableName,
+          Key: {
+            ImageHash: { S: sha256Hash },
+          },
+        })
+      ),
+      dynamoDBClient.send(
+        new QueryCommand({
+          TableName: dynamoDBTableName,
+          IndexName: "PHashIndex",
+          KeyConditionExpression: "PHash = :phash",
+          ExpressionAttributeValues: {
+            ":phash": { S: pHash },
+          },
+        })
+      ),
+    ]);
 
-    const fileExtension = path.extname(fileName || "");
-    const s3Key = `${md5Hash}${fileExtension}`;
-
-    console.log("Uploading to S3...");
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: s3BucketName,
-        Key: s3Key,
-        Body: fileData,
-        ContentType: mimeType,
-      })
-    );
-    console.log("S3 upload successful");
-
-    // Retrieve and compare the object from S3
-    console.log("Retrieving object from S3 for verification...");
-    const getObjectResult = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: s3BucketName,
-        Key: s3Key,
-      })
-    );
-
-    const s3Data = await streamToBuffer(getObjectResult.Body);
-
-    const isDataEqual = Buffer.compare(fileData, s3Data) === 0;
-    console.log(`Data match between original and S3 object: ${isDataEqual}`);
-
-    const s3DataHash = crypto.createHash("sha256").update(s3Data).digest("hex");
-    console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
-
-    const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
-
-    console.log("Saving to DynamoDB...");
-    await dynamoDBClient.send(
-      new PutItemCommand({
-        TableName: dynamoDBTableName,
-        Item: {
-          ImageHash: { S: md5Hash },
-          s3ObjectUrl: { S: s3ObjectUrl },
-          uploadDate: { S: new Date().toISOString() },
-          sha256Hash: { S: sha256Hash },
+    if (exactDuplicate.Item) {
+      console.log("Duplicate file detected");
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": allowOrigin,
         },
-      })
-    );
-    console.log("DynamoDB save successful");
+        body: JSON.stringify({
+          message: "File already exists",
+          imageHash: sha256Hash,
+          pHash: pHash,
+          s3ObjectUrl: exactDuplicate.Item.s3ObjectUrl.S,
+        }),
+      };
+    } else if (similarImages.Items && similarImages.Items.length > 0) {
+      console.log("Similar image detected");
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": allowOrigin,
+        },
+        body: JSON.stringify({
+          message: "Similar file exists",
+          imageHash: sha256Hash,
+          pHash: pHash,
+          s3ObjectUrl: similarImages.Items[0].s3ObjectUrl.S,
+        }),
+      };
+    } else {
+      // Proceed with upload and saving to DynamoDB
+      console.log("Uploading to S3...");
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: s3BucketName,
+          Key: `${sha256Hash.slice(0, 16)}_${fileName}${path.extname(
+            fileName
+          )}`,
+          Body: fileData,
+          ContentType: mimeType,
+        })
+      );
+      console.log("S3 upload successful");
 
-    return {
-      statusCode: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": allowOrigin,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-      body: JSON.stringify({
-        message: "Image uploaded successfully",
-        imageHash: md5Hash,
-        s3ObjectUrl: s3ObjectUrl,
-        sha256Hash: sha256Hash,
-        dataMatch: isDataEqual,
-        s3DataHash: s3DataHash,
-      }),
-    };
+      // Retrieve and compare the object from S3
+      console.log("Retrieving object from S3 for verification...");
+      const getObjectResult = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: s3BucketName,
+          Key: `${sha256Hash.slice(0, 16)}_${fileName}${path.extname(
+            fileName
+          )}`,
+        })
+      );
+
+      const s3Data = await streamToBuffer(getObjectResult.Body);
+
+      const isDataEqual = Buffer.compare(fileData, s3Data) === 0;
+      console.log(`Data match between original and S3 object: ${isDataEqual}`);
+
+      const s3DataHash = crypto
+        .createHash("sha256")
+        .update(s3Data)
+        .digest("hex");
+      console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
+
+      const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${sha256Hash.slice(
+        0,
+        16
+      )}_${fileName}${path.extname(fileName)}`;
+
+      console.log("Saving to DynamoDB...");
+      await dynamoDBClient.send(
+        new PutItemCommand({
+          TableName: dynamoDBTableName,
+          Item: {
+            ImageHash: { S: sha256Hash },
+            PHash: { S: pHash },
+            s3ObjectUrl: { S: s3ObjectUrl },
+            uploadDate: { S: new Date().toISOString() },
+            originalFileName: { S: fileName },
+          },
+        })
+      );
+
+      // Modify the success response to include pHash
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": allowOrigin,
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+        body: JSON.stringify({
+          message: "Image uploaded successfully",
+          imageHash: sha256Hash,
+          pHash: pHash,
+          s3ObjectUrl: s3ObjectUrl,
+          dataMatch: isDataEqual,
+          originalFileName: fileName,
+        }),
+      };
+    }
   } catch (error) {
     console.error("Error processing image:", error);
     console.error("Error details:", JSON.stringify(error, null, 2));
