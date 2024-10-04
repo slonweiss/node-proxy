@@ -1,4 +1,8 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
 import { parse } from "lambda-multipart-parser";
@@ -11,8 +15,9 @@ const awsRegion = process.env.AWS_REGION || "us-east-2"; // Default to us-east-2
 
 const s3Client = new S3Client({
   region: awsRegion,
-  forcePathStyle: true, // Needed for correct URL formatting
+  logger: console, // Enable AWS SDK logging
 });
+
 const dynamoDBClient = new DynamoDBClient({ region: awsRegion });
 
 const allowedOrigins = [
@@ -23,6 +28,15 @@ const allowedOrigins = [
   "https://www.instagram.com",
   "https://www.reddit.com",
 ];
+
+// Utility function to convert stream to buffer
+const streamToBuffer = (stream) =>
+  new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
 
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
@@ -69,7 +83,7 @@ export const handler = async (event) => {
     }
 
     const file = result.files[0];
-    const fileData = file.content;
+    let fileData = file.content;
     const fileName = file.filename;
     const mimeType = file.contentType;
 
@@ -77,6 +91,13 @@ export const handler = async (event) => {
     console.log(`File size: ${fileData.length} bytes`);
     console.log(`Content-Type: ${mimeType}`);
     console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
+
+    // Ensure fileData is a Buffer
+    console.log(`Type of fileData: ${typeof fileData}`);
+    console.log(`Is fileData a Buffer: ${Buffer.isBuffer(fileData)}`);
+    if (!Buffer.isBuffer(fileData)) {
+      fileData = Buffer.from(fileData, "binary");
+    }
 
     // Compute SHA-256 hash
     const sha256Hash = crypto
@@ -106,6 +127,23 @@ export const handler = async (event) => {
     );
     console.log("S3 upload successful");
 
+    // Retrieve and compare the object from S3
+    console.log("Retrieving object from S3 for verification...");
+    const getObjectResult = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: s3BucketName,
+        Key: s3Key,
+      })
+    );
+
+    const s3Data = await streamToBuffer(getObjectResult.Body);
+
+    const isDataEqual = Buffer.compare(fileData, s3Data) === 0;
+    console.log(`Data match between original and S3 object: ${isDataEqual}`);
+
+    const s3DataHash = crypto.createHash("sha256").update(s3Data).digest("hex");
+    console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
+
     const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
 
     console.log("Saving to DynamoDB...");
@@ -113,7 +151,7 @@ export const handler = async (event) => {
       new PutItemCommand({
         TableName: dynamoDBTableName,
         Item: {
-          ImageHash: { S: md5Hash }, // Changed from imageHash to ImageHash
+          ImageHash: { S: md5Hash },
           s3ObjectUrl: { S: s3ObjectUrl },
           uploadDate: { S: new Date().toISOString() },
           sha256Hash: { S: sha256Hash },
@@ -135,6 +173,8 @@ export const handler = async (event) => {
         imageHash: md5Hash,
         s3ObjectUrl: s3ObjectUrl,
         sha256Hash: sha256Hash,
+        dataMatch: isDataEqual,
+        s3DataHash: s3DataHash,
       }),
     };
   } catch (error) {
