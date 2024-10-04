@@ -35,6 +35,7 @@ const allowedOrigins = [
   "https://www.x.com",
   "https://www.instagram.com",
   "https://www.reddit.com",
+  "https://realeyes.ai",
 ];
 
 // Utility function to convert stream to buffer
