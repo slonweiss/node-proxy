@@ -1,7 +1,7 @@
-import Busboy from "busboy";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import crypto from "crypto";
+import { parse } from "lambda-multipart-parser";
 import path from "path";
 
 const s3Client = new S3Client({ region: "us-west-2" });
@@ -16,10 +16,8 @@ const allowedOrigins = [
   "https://www.reddit.com",
 ];
 
-export const handler = async (event, context) => {
+export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
-  console.log("Headers:", JSON.stringify(event.headers, null, 2));
-  console.log("Body length:", event.body ? event.body.length : 0);
 
   const origin = event.headers.origin || event.headers.Origin;
   const allowOrigin = allowedOrigins.includes(origin)
@@ -39,135 +37,112 @@ export const handler = async (event, context) => {
     };
   }
 
-  return new Promise((resolve, reject) => {
+  try {
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
     console.log("Content-Type:", contentType);
 
     if (!contentType || !contentType.includes("multipart/form-data")) {
       console.error("Invalid or missing Content-Type header");
-      return resolve({
+      return {
         statusCode: 400,
         headers: {
           "Access-Control-Allow-Origin": allowOrigin,
         },
         body: JSON.stringify({ error: "Invalid Content-Type" }),
-      });
+      };
     }
 
-    const busboy = Busboy({ headers: event.headers });
-    let fileData = null;
-    let fileName = null;
-    let mimeType = null;
+    // Parse the multipart form data
+    const result = await parse(event);
 
-    busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
-      console.log("File event triggered");
-      fileName = filename;
-      mimeType = mimetype;
-      const chunks = [];
+    if (!result.files || result.files.length === 0) {
+      throw new Error("No files found in the request");
+    }
 
-      file.on("data", (chunk) => {
-        chunks.push(chunk);
-      });
+    const file = result.files[0];
+    const fileData = file.content;
+    const fileName = file.filename;
+    const mimeType = file.contentType;
 
-      file.on("end", () => {
-        fileData = Buffer.concat(chunks);
-        console.log("File received, size:", fileData.length);
-        console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
-      });
-    });
+    console.log(`File received: ${fileName}`);
+    console.log(`File size: ${fileData.length} bytes`);
+    console.log(`Content-Type: ${mimeType}`);
+    console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
 
-    busboy.on("finish", async () => {
-      console.log("Busboy finished");
-      try {
-        if (!fileData) {
-          throw new Error("No file data received");
-        }
+    // Compute SHA-256 hash
+    const sha256Hash = crypto
+      .createHash("sha256")
+      .update(fileData)
+      .digest("hex");
+    console.log(`Received image SHA-256 hash: ${sha256Hash}`);
 
-        console.log("File size:", fileData.length);
-        console.log("Content-Type:", mimeType);
-        console.log("First 16 bytes:", fileData.slice(0, 16).toString("hex"));
+    // Compute MD5 hash for S3 key
+    const md5Hash = crypto
+      .createHash("md5")
+      .update(fileData)
+      .digest("hex")
+      .slice(0, 10);
 
-        const hash = crypto
-          .createHash("md5")
-          .update(fileData)
-          .digest("hex")
-          .slice(0, 10);
+    const fileExtension = path.extname(fileName || "");
+    const s3Key = `${md5Hash}${fileExtension}`;
 
-        const fileExtension = path.extname(fileName).slice(1).toLowerCase();
+    console.log("Uploading to S3...");
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: "realeyes-ai-images",
+        Key: s3Key,
+        Body: fileData,
+        ContentType: mimeType,
+      })
+    );
+    console.log("S3 upload successful");
 
-        const s3Key = `${path.parse(fileName).name}_${hash}.${fileExtension}`;
-        console.log("S3 Key:", s3Key);
+    const s3ObjectUrl = `https://realeyes-ai-images.s3.amazonaws.com/${s3Key}`;
 
-        const s3Client = new S3Client();
-        const putObjectCommand = new PutObjectCommand({
-          Bucket: process.env.S3_BUCKET,
-          Key: s3Key,
-          Body: fileData,
-          ContentType: mimeType,
-        });
+    console.log("Saving to DynamoDB...");
+    await dynamoDBClient.send(
+      new PutItemCommand({
+        TableName: "realeyes-ai-images",
+        Item: {
+          imageHash: { S: md5Hash },
+          s3ObjectUrl: { S: s3ObjectUrl },
+          uploadDate: { S: new Date().toISOString() },
+          sha256Hash: { S: sha256Hash },
+        },
+      })
+    );
+    console.log("DynamoDB save successful");
 
-        console.log("Uploading to S3...");
-        await s3Client.send(putObjectCommand);
-        console.log("S3 upload successful");
-
-        const s3ObjectUrl = `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${s3Key}`;
-
-        const dynamoClient = new DynamoDBClient();
-        const putItemCommand = new PutItemCommand({
-          TableName: process.env.DYNAMODB_TABLE,
-          Item: {
-            ImageHash: { S: hash },
-            S3ObjectUrl: { S: s3ObjectUrl },
-            OriginalFileName: { S: fileName },
-            MimeType: { S: mimeType },
-          },
-        });
-
-        console.log("Saving to DynamoDB...");
-        await dynamoClient.send(putItemCommand);
-        console.log("DynamoDB save successful");
-
-        const response = {
-          statusCode: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": allowOrigin,
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-          body: JSON.stringify({
-            message: "Image uploaded successfully",
-            imageHash: hash,
-            s3ObjectUrl: s3ObjectUrl,
-          }),
-        };
-
-        resolve(response);
-      } catch (error) {
-        console.error("Error processing image:", error);
-        resolve({
-          statusCode: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": allowOrigin,
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-          body: JSON.stringify({
-            error: "Internal server error",
-            details: error.message,
-          }),
-        });
-      }
-    });
-
-    // Parse the event body
-    const buffer = event.isBase64Encoded
-      ? Buffer.from(event.body, "base64")
-      : Buffer.from(event.body, "binary");
-
-    busboy.write(buffer);
-    busboy.end();
-  });
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": allowOrigin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+      body: JSON.stringify({
+        message: "Image uploaded successfully",
+        imageHash: md5Hash,
+        s3ObjectUrl: s3ObjectUrl,
+        sha256Hash: sha256Hash,
+      }),
+    };
+  } catch (error) {
+    console.error("Error processing image:", error);
+    return {
+      statusCode: 500,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": allowOrigin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+      body: JSON.stringify({
+        error: "Internal server error",
+        details: error.message,
+      }),
+    };
+  }
 };
