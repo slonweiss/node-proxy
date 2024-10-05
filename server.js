@@ -61,11 +61,15 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   console.log(`URL: ${url}`);
   console.log(`MIME type: ${mimeType}`);
 
+  let extensionSource = "";
+  let ext = "";
+
   // 1. Check original filename
-  let ext = path.extname(fileName).toLowerCase();
+  ext = path.extname(fileName).toLowerCase();
   if (ext && ext.length > 1) {
-    console.log(`Extension from filename: ${ext}`);
-    return ext;
+    extensionSource = "filename";
+    console.log(`Extension derived from filename: ${ext}`);
+    return { ext, extensionSource };
   }
 
   // 2. Check URL for format (Twitter-specific)
@@ -74,8 +78,9 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
     const format = urlObj.searchParams.get("format");
     if (format) {
       ext = `.${format.toLowerCase()}`;
-      console.log(`Extension from URL format: ${ext}`);
-      return ext;
+      extensionSource = "URL format";
+      console.log(`Extension derived from URL format: ${ext}`);
+      return { ext, extensionSource };
     }
   }
 
@@ -83,23 +88,27 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   const header = fileData.slice(0, 12).toString("hex");
   if (header.startsWith("ffd8ffe0") || header.startsWith("ffd8ffe1")) {
     ext = ".jpg";
+    extensionSource = "file header";
   } else if (header.startsWith("89504e470d0a1a0a")) {
     ext = ".png";
+    extensionSource = "file header";
   } else if (
     header.startsWith("474946383961") ||
     header.startsWith("474946383761")
   ) {
     ext = ".gif";
+    extensionSource = "file header";
   } else if (
     header.startsWith("52494646") &&
     header.slice(16, 24) === "57454250"
   ) {
     ext = ".webp";
+    extensionSource = "file header";
   }
 
   if (ext) {
-    console.log(`Extension from file header: ${ext}`);
-    return ext;
+    console.log(`Extension derived from file header: ${ext}`);
+    return { ext, extensionSource };
   }
 
   // 4. Fall back to MIME type
@@ -113,9 +122,10 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
     "image/tiff": ".tiff",
   };
   ext = mimeToExt[mimeType] || "";
-  console.log(`Extension from MIME type: ${ext}`);
+  extensionSource = ext ? "MIME type" : "default";
+  console.log(`Extension derived from MIME type: ${ext || ".bin"}`);
 
-  return ext || ".bin"; // Default to .bin if we can't determine the extension
+  return { ext: ext || ".bin", extensionSource };
 }
 
 export const handler = async (event) => {
@@ -306,13 +316,14 @@ export const handler = async (event) => {
       console.log("Uploading to S3...");
       console.log(`Original fileName: ${fileName}`);
       console.log(`Detected mimeType: ${mimeType}`);
-      const fileExtension = getFileExtensionFromData(
+      const { ext: fileExtension, extensionSource } = getFileExtensionFromData(
         fileName,
         url,
         mimeType,
         fileData
       );
       console.log(`Determined fileExtension: ${fileExtension}`);
+      console.log(`Extension source: ${extensionSource}`);
       const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
       console.log(`Generated S3 key: ${s3Key}`);
       await s3Client.send(
@@ -361,12 +372,15 @@ export const handler = async (event) => {
             uploadDate: { S: new Date().toISOString() },
             originalFileName: { S: fileName },
             originWebsites: { SS: [origin] },
-            requestCount: { N: "1" }, // Initialize requestCount to 1
+            requestCount: { N: "1" },
+            imageOriginUrl: { S: url }, // Add the image origin URL
+            fileExtension: { S: fileExtension },
+            extensionSource: { S: extensionSource },
           },
         })
       );
 
-      // Modify the success response to include requestCount
+      // Modify the success response to include new information
       return {
         statusCode: 200,
         headers: {
@@ -384,6 +398,9 @@ export const handler = async (event) => {
           originalFileName: fileName,
           originWebsites: [origin],
           requestCount: 1,
+          imageOriginUrl: url,
+          fileExtension: fileExtension,
+          extensionSource: extensionSource,
         }),
       };
     }
