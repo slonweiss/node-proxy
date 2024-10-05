@@ -362,23 +362,48 @@ export const handler = async (event) => {
       const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
 
       console.log("Saving to DynamoDB...");
-      await dynamoDBClient.send(
-        new PutItemCommand({
-          TableName: dynamoDBTableName,
-          Item: {
-            ImageHash: { S: sha256Hash },
-            PHash: { S: pHash },
-            s3ObjectUrl: { S: s3ObjectUrl },
-            uploadDate: { S: new Date().toISOString() },
-            originalFileName: { S: fileName },
-            originWebsites: { SS: [origin] },
-            requestCount: { N: "1" },
-            imageOriginUrl: { S: url }, // Add the image origin URL
-            fileExtension: { S: fileExtension },
-            extensionSource: { S: extensionSource },
-          },
-        })
-      );
+      console.log("Received values:");
+      console.log("fileName:", fileName);
+      console.log("url:", url);
+      console.log("mimeType:", mimeType);
+      console.log("origin:", origin);
+      console.log("sha256Hash:", sha256Hash);
+      console.log("pHash:", pHash);
+      const dynamoDBItem = {
+        ImageHash: { S: sha256Hash },
+        PHash: { S: pHash },
+        s3ObjectUrl: { S: s3ObjectUrl },
+        uploadDate: { S: new Date().toISOString() },
+        originalFileName: { S: fileName },
+        originWebsites: { SS: [origin] },
+        requestCount: { N: "1" },
+        fileExtension: { S: fileExtension },
+        extensionSource: { S: extensionSource },
+      };
+
+      // Add imageOriginUrl only if it's defined
+      if (url) {
+        dynamoDBItem.imageOriginUrl = { S: url };
+      }
+
+      console.log("DynamoDB Item:", JSON.stringify(dynamoDBItem, null, 2));
+
+      try {
+        await dynamoDBClient.send(
+          new PutItemCommand({
+            TableName: dynamoDBTableName,
+            Item: dynamoDBItem,
+          })
+        );
+        console.log("Successfully saved to DynamoDB");
+      } catch (error) {
+        console.error("Error saving to DynamoDB:", error);
+        console.error(
+          "DynamoDB Item that caused the error:",
+          JSON.stringify(dynamoDBItem, null, 2)
+        );
+        throw error; // Re-throw the error to be caught by the main try-catch block
+      }
 
       // Modify the success response to include new information
       return {
