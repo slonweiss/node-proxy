@@ -56,7 +56,53 @@ const calculatePHash = async (buffer) => {
   return imghash.hash(resizedBuffer);
 };
 
-function getFileExtensionFromMimeType(mimeType) {
+function getFileExtensionFromData(fileName, url, mimeType, fileData) {
+  console.log(`Determining file extension for: ${fileName}`);
+  console.log(`URL: ${url}`);
+  console.log(`MIME type: ${mimeType}`);
+
+  // 1. Check original filename
+  let ext = path.extname(fileName).toLowerCase();
+  if (ext && ext.length > 1) {
+    console.log(`Extension from filename: ${ext}`);
+    return ext;
+  }
+
+  // 2. Check URL for format (Twitter-specific)
+  if (url && url.includes("twimg.com")) {
+    const urlObj = new URL(url);
+    const format = urlObj.searchParams.get("format");
+    if (format) {
+      ext = `.${format.toLowerCase()}`;
+      console.log(`Extension from URL format: ${ext}`);
+      return ext;
+    }
+  }
+
+  // 3. Examine file header (magic numbers)
+  const header = fileData.slice(0, 12).toString("hex");
+  if (header.startsWith("ffd8ffe0") || header.startsWith("ffd8ffe1")) {
+    ext = ".jpg";
+  } else if (header.startsWith("89504e470d0a1a0a")) {
+    ext = ".png";
+  } else if (
+    header.startsWith("474946383961") ||
+    header.startsWith("474946383761")
+  ) {
+    ext = ".gif";
+  } else if (
+    header.startsWith("52494646") &&
+    header.slice(16, 24) === "57454250"
+  ) {
+    ext = ".webp";
+  }
+
+  if (ext) {
+    console.log(`Extension from file header: ${ext}`);
+    return ext;
+  }
+
+  // 4. Fall back to MIME type
   const mimeToExt = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -66,10 +112,10 @@ function getFileExtensionFromMimeType(mimeType) {
     "image/bmp": ".bmp",
     "image/tiff": ".tiff",
   };
-  console.log(`Determining file extension for MIME type: ${mimeType}`);
-  const ext = mimeToExt[mimeType] || "";
-  console.log(`Determined file extension: ${ext}`);
-  return ext;
+  ext = mimeToExt[mimeType] || "";
+  console.log(`Extension from MIME type: ${ext}`);
+
+  return ext || ".bin"; // Default to .bin if we can't determine the extension
 }
 
 export const handler = async (event) => {
@@ -120,6 +166,7 @@ export const handler = async (event) => {
     let fileData = file.content;
     const fileName = file.filename;
     const mimeType = file.contentType;
+    const url = file.url;
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
@@ -259,8 +306,12 @@ export const handler = async (event) => {
       console.log("Uploading to S3...");
       console.log(`Original fileName: ${fileName}`);
       console.log(`Detected mimeType: ${mimeType}`);
-      const fileExtension =
-        path.extname(fileName) || getFileExtensionFromMimeType(mimeType);
+      const fileExtension = getFileExtensionFromData(
+        fileName,
+        url,
+        mimeType,
+        fileData
+      );
       console.log(`Determined fileExtension: ${fileExtension}`);
       const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
       console.log(`Generated S3 key: ${s3Key}`);
@@ -269,7 +320,10 @@ export const handler = async (event) => {
           Bucket: s3BucketName,
           Key: s3Key,
           Body: fileData,
-          ContentType: mimeType,
+          ContentType:
+            mimeType === "application/octet-stream"
+              ? `image/${fileExtension.slice(1)}`
+              : mimeType,
         })
       );
       console.log("S3 upload successful");
