@@ -66,7 +66,10 @@ function getFileExtensionFromMimeType(mimeType) {
     "image/bmp": ".bmp",
     "image/tiff": ".tiff",
   };
-  return mimeToExt[mimeType] || "";
+  console.log(`Determining file extension for MIME type: ${mimeType}`);
+  const ext = mimeToExt[mimeType] || "";
+  console.log(`Determined file extension: ${ext}`);
+  return ext;
 }
 
 export const handler = async (event) => {
@@ -254,9 +257,13 @@ export const handler = async (event) => {
     } else {
       // Proceed with upload and saving to DynamoDB
       console.log("Uploading to S3...");
+      console.log(`Original fileName: ${fileName}`);
+      console.log(`Detected mimeType: ${mimeType}`);
       const fileExtension =
         path.extname(fileName) || getFileExtensionFromMimeType(mimeType);
+      console.log(`Determined fileExtension: ${fileExtension}`);
       const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
+      console.log(`Generated S3 key: ${s3Key}`);
       await s3Client.send(
         new PutObjectCommand({
           Bucket: s3BucketName,
