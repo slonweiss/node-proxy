@@ -56,6 +56,27 @@ const calculatePHash = async (buffer) => {
   return imghash.hash(resizedBuffer);
 };
 
+// Add this function after the existing utility functions
+const getValidOrigin = (event) => {
+  const origin = event.headers.origin || event.headers.Origin || "";
+  const referer = event.headers.referer || event.headers.Referrer || "";
+
+  // Check if the origin is in the allowed list
+  if (allowedOrigins.includes(origin)) {
+    return origin;
+  }
+
+  // If origin is not in the allowed list, try to extract from referer
+  for (const allowedOrigin of allowedOrigins) {
+    if (referer.startsWith(allowedOrigin)) {
+      return allowedOrigin;
+    }
+  }
+
+  // If no valid origin is found, return null
+  return null;
+};
+
 function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   console.log(`Determining file extension for: ${fileName}`);
   console.log(`URL: ${url}`);
@@ -131,10 +152,8 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
-  const origin = event.headers.origin || event.headers.Origin;
-  const allowOrigin = allowedOrigins.includes(origin)
-    ? origin
-    : allowedOrigins[0];
+  const validOrigin = getValidOrigin(event);
+  const allowOrigin = validOrigin || allowedOrigins[0];
 
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -230,7 +249,9 @@ export const handler = async (event) => {
           ? exactDuplicate.Item.originWebsites.SS
           : []
       );
-      updatedOriginWebsites.add(origin);
+      if (validOrigin) {
+        updatedOriginWebsites.add(validOrigin);
+      }
 
       // Update DynamoDB with the new origin website and increment requestCount
       const updateResult = await dynamoDBClient.send(
@@ -274,7 +295,9 @@ export const handler = async (event) => {
       const updatedOriginWebsites = new Set(
         similarImage.originWebsites ? similarImage.originWebsites.SS : []
       );
-      updatedOriginWebsites.add(origin);
+      if (validOrigin) {
+        updatedOriginWebsites.add(validOrigin);
+      }
 
       // Update DynamoDB with the new origin website and increment requestCount
       const updateResult = await dynamoDBClient.send(
@@ -366,7 +389,7 @@ export const handler = async (event) => {
       console.log("fileName:", fileName);
       console.log("url:", url);
       console.log("mimeType:", mimeType);
-      console.log("origin:", origin);
+      console.log("origin:", validOrigin);
       console.log("sha256Hash:", sha256Hash);
       console.log("pHash:", pHash);
       const dynamoDBItem = {
@@ -375,7 +398,7 @@ export const handler = async (event) => {
         s3ObjectUrl: { S: s3ObjectUrl },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
-        originWebsites: { SS: [origin] },
+        originWebsites: { SS: validOrigin ? [validOrigin] : [] },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
@@ -421,7 +444,7 @@ export const handler = async (event) => {
           s3ObjectUrl: s3ObjectUrl,
           dataMatch: isDataEqual,
           originalFileName: fileName,
-          originWebsites: [origin],
+          originWebsites: validOrigin ? [validOrigin] : [],
           requestCount: 1,
           imageOriginUrl: url,
           fileExtension: fileExtension,
