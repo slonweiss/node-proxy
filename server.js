@@ -217,6 +217,7 @@ export const handler = async (event) => {
   }
 
   try {
+    let allMetadata = {};
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
     console.log("Content-Type:", contentType);
@@ -237,8 +238,12 @@ export const handler = async (event) => {
 
     // Add this after parsing the multipart form data
     console.log("Received form fields:");
-    for (const [key, value] of Object.entries(result.fields)) {
-      console.log(`${key}: ${value}`);
+    if (result.fields) {
+      for (const [key, value] of Object.entries(result.fields)) {
+        console.log(`${key}: ${value}`);
+      }
+    } else {
+      console.log("No form fields received");
     }
 
     if (!result.files || result.files.length === 0) {
@@ -274,7 +279,7 @@ export const handler = async (event) => {
     console.log(`Calculated pHash: ${pHash}`);
 
     // Extract metadata
-    const allMetadata = await extractAllMetadata(fileData);
+    allMetadata = await extractAllMetadata(fileData);
 
     console.log("Extracted metadata:", allMetadata);
 
@@ -462,7 +467,7 @@ export const handler = async (event) => {
   } catch (error) {
     console.error("Error processing image:", error);
     console.error("Error stack:", error.stack);
-    console.error("Metadata object:", allMetadata);
+    console.error("Metadata object:", allMetadata || "No metadata available");
     return {
       statusCode: 500,
       headers: {
