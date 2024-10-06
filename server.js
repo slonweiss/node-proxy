@@ -160,12 +160,34 @@ async function extractAllMetadata(buffer) {
     metadata.sharp = sharpMetadata;
 
     // Extract EXIF data
-    const exif = ExifReader.load(buffer);
-    metadata.exif = exif;
+    try {
+      const exif = ExifReader.load(buffer);
+      metadata.exif = exif;
+    } catch (exifError) {
+      console.log(
+        "No EXIF data found or error reading EXIF data:",
+        exifError.message
+      );
+    }
 
-    // Add any other metadata extraction here
-    // For example, if you have a way to extract C2PA data:
-    // metadata.c2pa = extractC2PAData(buffer);
+    // Extract C2PA data
+    try {
+      const c2paData = await c2pa.read(buffer);
+      if (c2paData) {
+        metadata.c2pa = {
+          activeManifest: c2paData.activeManifest,
+          manifestStore: c2paData.manifestStore,
+          ingredients: c2paData.ingredients,
+          thumbnail: c2paData.thumbnail,
+          // Add any other relevant C2PA data you want to store
+        };
+      }
+    } catch (c2paError) {
+      console.log(
+        "No C2PA data found or error reading C2PA data:",
+        c2paError.message
+      );
+    }
   } catch (error) {
     console.error("Error extracting metadata:", error);
   }
