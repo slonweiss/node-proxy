@@ -235,6 +235,12 @@ export const handler = async (event) => {
     // Parse the multipart form data
     const result = await parse(event);
 
+    // Add this after parsing the multipart form data
+    console.log("Received form fields:");
+    for (const [key, value] of Object.entries(result.fields)) {
+      console.log(`${key}: ${value}`);
+    }
+
     if (!result.files || result.files.length === 0) {
       throw new Error("No files found in the request");
     }
@@ -407,6 +413,10 @@ export const handler = async (event) => {
       }
 
       console.log("DynamoDB Item:", JSON.stringify(dynamoDBItem, null, 2));
+
+      // Add this before saving to DynamoDB
+      console.log("Full metadata being saved:");
+      console.log(JSON.stringify(dynamoDBItem, null, 2));
 
       try {
         await dynamoDBClient.send(
