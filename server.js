@@ -246,6 +246,9 @@ export const handler = async (event) => {
     console.log(`Received image SHA-256 hash: ${sha256Hash}`);
     console.log(`Calculated pHash: ${pHash}`);
 
+    // Get additional metadata using sharp
+    const metadata = await sharp(fileData).metadata();
+
     // Extract metadata
     const { exifData, c2paData } = await extractMetadata(fileData);
 
@@ -371,12 +374,20 @@ export const handler = async (event) => {
         ImageHash: { S: sha256Hash },
         PHash: { S: pHash },
         s3ObjectUrl: { S: s3ObjectUrl },
-        originalUrl: { S: url || "" }, // Add this line
+        originalUrl: { S: url || "" },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
+        fileSize: { N: fileData.length.toString() },
+        width: { N: metadata.width.toString() },
+        height: { N: metadata.height.toString() },
+        colorSpace: { S: metadata.space || "unknown" },
+        bitDepth: { N: metadata.depth.toString() },
+        compression: metadata.compression
+          ? { S: metadata.compression }
+          : { NULL: true },
         exifData: exifData ? { S: JSON.stringify(exifData) } : { NULL: true },
         c2paData: c2paData ? { S: JSON.stringify(c2paData) } : { NULL: true },
       };
@@ -426,6 +437,14 @@ export const handler = async (event) => {
           imageOriginUrl: url,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
+          fileSize: fileData.length,
+          width: metadata.width,
+          height: metadata.height,
+          colorSpace: metadata.space || "unknown",
+          bitDepth: metadata.depth,
+          compression: metadata.compression || null,
+          hasExifData: !!exifData,
+          hasC2paData: !!c2paData,
         }),
       };
     }
