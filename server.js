@@ -15,8 +15,8 @@ import { parse } from "lambda-multipart-parser";
 import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
-import exifReader from 'exif-reader';
-import * as c2pa from 'c2pa';
+import exifReader from "exif-reader";
+import * as c2pa from "c2pa";
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -27,8 +27,6 @@ const s3Client = new S3Client({
   region: awsRegion,
   logger: console, // Enable AWS SDK logging
 });
-
-
 
 const dynamoDBClient = new DynamoDBClient({ region: awsRegion });
 
@@ -42,8 +40,6 @@ const allowedOrigins = [
   "https://realeyes.ai",
 ];
 
-
-
 // Utility function to convert stream to buffer
 const streamToBuffer = (stream) =>
   new Promise((resolve, reject) => {
@@ -53,8 +49,6 @@ const streamToBuffer = (stream) =>
     stream.on("end", () => resolve(Buffer.concat(chunks)));
   });
 
-
-
 // Add this function after the streamToBuffer function
 const calculatePHash = async (buffer) => {
   const resizedBuffer = await sharp(buffer)
@@ -63,7 +57,6 @@ const calculatePHash = async (buffer) => {
     .toBuffer();
   return imghash.hash(resizedBuffer);
 };
-
 
 // Add this function after the existing utility functions
 const getValidOrigin = (event) => {
@@ -85,7 +78,6 @@ const getValidOrigin = (event) => {
   // If no valid origin is found, return null
   return null;
 };
-
 
 function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   console.log(`Determining file extension for: ${fileName}`);
@@ -159,7 +151,6 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   return { ext: ext || ".bin", extensionSource };
 }
 
-
 async function extractMetadata(fileData) {
   let exifData = null;
   let c2paData = null;
@@ -167,18 +158,23 @@ async function extractMetadata(fileData) {
   try {
     exifData = exifReader(fileData);
   } catch (error) {
-    console.log('No Exif data found or error reading Exif data:', error.message);
+    console.log(
+      "No Exif data found or error reading Exif data:",
+      error.message
+    );
   }
 
   try {
     c2paData = await c2pa.read(fileData);
   } catch (error) {
-    console.log('No C2PA data found or error reading C2PA data:', error.message);
+    console.log(
+      "No C2PA data found or error reading C2PA data:",
+      error.message
+    );
   }
 
   return { exifData, c2paData };
 }
-
 
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
@@ -222,7 +218,6 @@ export const handler = async (event) => {
       throw new Error("No files found in the request");
     }
 
-
     const file = result.files[0];
     let fileData = file.content;
     const fileName = file.filename;
@@ -241,7 +236,6 @@ export const handler = async (event) => {
       fileData = Buffer.from(fileData, "binary");
     }
 
-
     // Calculate both hashes
     const sha256Hash = crypto
       .createHash("sha256")
@@ -255,31 +249,18 @@ export const handler = async (event) => {
     // Extract metadata
     const { exifData, c2paData } = await extractMetadata(fileData);
 
-    console.log('Extracted EXIF data:', exifData);
-    console.log('Extracted C2PA data:', c2paData);
+    console.log("Extracted EXIF data:", exifData);
+    console.log("Extracted C2PA data:", c2paData);
 
-    // Perform parallel checks
-    const [exactDuplicate, similarImages] = await Promise.all([
-      dynamoDBClient.send(
-        new GetItemCommand({
-          TableName: dynamoDBTableName,
-          Key: {
-            ImageHash: { S: sha256Hash },
-          },
-        })
-      ),
-      dynamoDBClient.send(
-        new QueryCommand({
-          TableName: dynamoDBTableName,
-          IndexName: "PHashIndex",
-          KeyConditionExpression: "PHash = :phash",
-          ExpressionAttributeValues: {
-            ":phash": { S: pHash },
-          },
-        })
-      ),
-    ]);
-
+    // Check for exact duplicate only
+    const exactDuplicate = await dynamoDBClient.send(
+      new GetItemCommand({
+        TableName: dynamoDBTableName,
+        Key: {
+          ImageHash: { S: sha256Hash },
+        },
+      })
+    );
 
     if (exactDuplicate.Item) {
       console.log("Duplicate file detected");
@@ -321,52 +302,6 @@ export const handler = async (event) => {
         },
         body: JSON.stringify({
           message: "File already exists",
-          imageHash: sha256Hash,
-          pHash: pHash,
-          s3ObjectUrl: updatedItem.s3ObjectUrl.S,
-          originWebsites: updatedItem.originWebsites.SS,
-          requestCount: parseInt(updatedItem.requestCount.N),
-        }),
-      };
-    } else if (similarImages.Items && similarImages.Items.length > 0) {
-      console.log("Similar image detected");
-
-      const similarImage = similarImages.Items[0];
-      const updatedOriginWebsites = new Set(
-        similarImage.originWebsites ? similarImage.originWebsites.SS : []
-      );
-      if (validOrigin) {
-        updatedOriginWebsites.add(validOrigin);
-      }
-
-      // Update DynamoDB with the new origin website and increment requestCount
-      const updateResult = await dynamoDBClient.send(
-        new UpdateItemCommand({
-          TableName: dynamoDBTableName,
-          Key: {
-            ImageHash: { S: similarImage.ImageHash.S },
-          },
-          UpdateExpression:
-            "SET originWebsites = :websites, requestCount = if_not_exists(requestCount, :start) + :inc",
-          ExpressionAttributeValues: {
-            ":websites": { SS: Array.from(updatedOriginWebsites) },
-            ":start": { N: "0" },
-            ":inc": { N: "1" },
-          },
-          ReturnValues: "ALL_NEW",
-        })
-      );
-
-      const updatedItem = updateResult.Attributes;
-
-      return {
-        statusCode: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": allowOrigin,
-        },
-        body: JSON.stringify({
-          message: "Similar file exists",
           imageHash: sha256Hash,
           pHash: pHash,
           s3ObjectUrl: updatedItem.s3ObjectUrl.S,
@@ -436,16 +371,15 @@ export const handler = async (event) => {
         ImageHash: { S: sha256Hash },
         PHash: { S: pHash },
         s3ObjectUrl: { S: s3ObjectUrl },
-        originalUrl: { S: url || "" },  // Add this line
+        originalUrl: { S: url || "" }, // Add this line
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         exifData: exifData ? { S: JSON.stringify(exifData) } : { NULL: true },
-        c2paData: c2paData ? { S: JSON.stringify(c2paData) } : { NULL: true }
+        c2paData: c2paData ? { S: JSON.stringify(c2paData) } : { NULL: true },
       };
-
 
       // Only add originWebsites if it's not empty
       if (validOrigin && validOrigin.length > 0) {
