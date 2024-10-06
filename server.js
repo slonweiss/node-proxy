@@ -176,7 +176,6 @@ async function extractMetadata(fileData) {
     console.log('No C2PA data found or error reading C2PA data:', error.message);
   }
 
-
   return { exifData, c2paData };
 }
 
@@ -252,6 +251,12 @@ export const handler = async (event) => {
 
     console.log(`Received image SHA-256 hash: ${sha256Hash}`);
     console.log(`Calculated pHash: ${pHash}`);
+
+    // Extract metadata
+    const { exifData, c2paData } = await extractMetadata(fileData);
+
+    console.log('Extracted EXIF data:', exifData);
+    console.log('Extracted C2PA data:', c2paData);
 
     // Perform parallel checks
     const [exactDuplicate, similarImages] = await Promise.all([
