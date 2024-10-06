@@ -15,6 +15,8 @@ import { parse } from "lambda-multipart-parser";
 import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
+import exifReader from 'exif-reader';
+import { C2pa } from 'c2pa';
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -25,6 +27,8 @@ const s3Client = new S3Client({
   region: awsRegion,
   logger: console, // Enable AWS SDK logging
 });
+
+
 
 const dynamoDBClient = new DynamoDBClient({ region: awsRegion });
 
@@ -38,6 +42,8 @@ const allowedOrigins = [
   "https://realeyes.ai",
 ];
 
+
+
 // Utility function to convert stream to buffer
 const streamToBuffer = (stream) =>
   new Promise((resolve, reject) => {
@@ -47,6 +53,8 @@ const streamToBuffer = (stream) =>
     stream.on("end", () => resolve(Buffer.concat(chunks)));
   });
 
+
+
 // Add this function after the streamToBuffer function
 const calculatePHash = async (buffer) => {
   const resizedBuffer = await sharp(buffer)
@@ -55,6 +63,7 @@ const calculatePHash = async (buffer) => {
     .toBuffer();
   return imghash.hash(resizedBuffer);
 };
+
 
 // Add this function after the existing utility functions
 const getValidOrigin = (event) => {
@@ -76,6 +85,7 @@ const getValidOrigin = (event) => {
   // If no valid origin is found, return null
   return null;
 };
+
 
 function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   console.log(`Determining file extension for: ${fileName}`);
@@ -149,6 +159,29 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   return { ext: ext || ".bin", extensionSource };
 }
 
+
+async function extractMetadata(fileData) {
+  let exifData = null;
+  let c2paData = null;
+
+  try {
+    exifData = exifReader(fileData);
+  } catch (error) {
+    console.log('No Exif data found or error reading Exif data:', error.message);
+  }
+
+  try {
+    const c2pa = new C2pa();
+    c2paData = await c2pa.read(fileData);
+  } catch (error) {
+    console.log('No C2PA data found or error reading C2PA data:', error.message);
+  }
+
+
+  return { exifData, c2paData };
+}
+
+
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
@@ -191,6 +224,7 @@ export const handler = async (event) => {
       throw new Error("No files found in the request");
     }
 
+
     const file = result.files[0];
     let fileData = file.content;
     const fileName = file.filename;
@@ -208,6 +242,7 @@ export const handler = async (event) => {
     if (!Buffer.isBuffer(fileData)) {
       fileData = Buffer.from(fileData, "binary");
     }
+
 
     // Calculate both hashes
     const sha256Hash = crypto
@@ -240,6 +275,7 @@ export const handler = async (event) => {
         })
       ),
     ]);
+
 
     if (exactDuplicate.Item) {
       console.log("Duplicate file detected");
@@ -372,7 +408,6 @@ export const handler = async (event) => {
       );
 
       const s3Data = await streamToBuffer(getObjectResult.Body);
-
       const isDataEqual = Buffer.compare(fileData, s3Data) === 0;
       console.log(`Data match between original and S3 object: ${isDataEqual}`);
 
@@ -402,8 +437,11 @@ export const handler = async (event) => {
         originalFileName: { S: fileName },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
-        extensionSource: { S: extensionSource }
+        extensionSource: { S: extensionSource },
+        exifData: exifData ? { S: JSON.stringify(exifData) } : { NULL: true },
+        c2paData: c2paData ? { S: JSON.stringify(c2paData) } : { NULL: true }
       };
+
 
       // Only add originWebsites if it's not empty
       if (validOrigin && validOrigin.length > 0) {
