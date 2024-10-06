@@ -384,7 +384,7 @@ export const handler = async (event) => {
         width: { N: metadata.width.toString() },
         height: { N: metadata.height.toString() },
         colorSpace: { S: metadata.space || "unknown" },
-        bitDepth: { N: metadata.depth.toString() },
+        bitDepth: { S: metadata.depth.toString() }, // Change this line
         compression: metadata.compression
           ? { S: metadata.compression }
           : { NULL: true },
