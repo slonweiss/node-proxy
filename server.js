@@ -16,7 +16,7 @@ import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
 import exifReader from 'exif-reader';
-import c2pa from 'c2pa';
+import * as c2pa from 'c2pa';
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -171,8 +171,7 @@ async function extractMetadata(fileData) {
   }
 
   try {
-    const c2paInstance = new c2pa.C2pa();
-    c2paData = await c2paInstance.read(fileData);
+    c2paData = await c2pa.read(fileData);
   } catch (error) {
     console.log('No C2PA data found or error reading C2PA data:', error.message);
   }
