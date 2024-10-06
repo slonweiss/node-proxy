@@ -179,8 +179,10 @@ async function extractMetadata(fileData) {
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
-  const validOrigin = getValidOrigin(event);
-  const allowOrigin = validOrigin || allowedOrigins[0];
+  const origin = event.headers["X-Origin"] || event.headers["x-origin"];
+  const allowOrigin = allowedOrigins.includes(origin)
+    ? origin
+    : allowedOrigins[0];
 
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -246,9 +248,6 @@ export const handler = async (event) => {
     console.log(`Received image SHA-256 hash: ${sha256Hash}`);
     console.log(`Calculated pHash: ${pHash}`);
 
-    // Get additional metadata using sharp
-    const metadata = await sharp(fileData).metadata();
-
     // Extract metadata
     const { exifData, c2paData } = await extractMetadata(fileData);
 
@@ -273,8 +272,8 @@ export const handler = async (event) => {
           ? exactDuplicate.Item.originWebsites.SS
           : []
       );
-      if (validOrigin) {
-        updatedOriginWebsites.add(validOrigin);
+      if (origin) {
+        updatedOriginWebsites.add(origin);
       }
 
       // Update DynamoDB with the new origin website and increment requestCount
@@ -366,7 +365,7 @@ export const handler = async (event) => {
       console.log("fileName:", fileName);
       console.log("url:", url);
       console.log("mimeType:", mimeType);
-      console.log("origin:", validOrigin);
+      console.log("origin:", origin);
       console.log("sha256Hash:", sha256Hash);
       console.log("pHash:", pHash);
       console.log("originalUrl:", url);
@@ -384,7 +383,7 @@ export const handler = async (event) => {
         width: { N: metadata.width.toString() },
         height: { N: metadata.height.toString() },
         colorSpace: { S: metadata.space || "unknown" },
-        bitDepth: { S: metadata.depth.toString() }, // Change this line
+        bitDepth: { S: metadata.depth.toString() }, // Changed as requested
         compression: metadata.compression
           ? { S: metadata.compression }
           : { NULL: true },
@@ -393,8 +392,8 @@ export const handler = async (event) => {
       };
 
       // Only add originWebsites if it's not empty
-      if (validOrigin && validOrigin.length > 0) {
-        dynamoDBItem.originWebsites = { SS: [validOrigin] };
+      if (origin && origin.length > 0) {
+        dynamoDBItem.originWebsites = { SS: [origin] };
       }
 
       console.log("DynamoDB Item:", JSON.stringify(dynamoDBItem, null, 2));
@@ -432,19 +431,11 @@ export const handler = async (event) => {
           s3ObjectUrl: s3ObjectUrl,
           dataMatch: isDataEqual,
           originalFileName: fileName,
-          originWebsites: validOrigin ? [validOrigin] : [],
+          originWebsites: origin ? [origin] : [],
           requestCount: 1,
           imageOriginUrl: url,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
-          fileSize: fileData.length,
-          width: metadata.width,
-          height: metadata.height,
-          colorSpace: metadata.space || "unknown",
-          bitDepth: metadata.depth,
-          compression: metadata.compression || null,
-          hasExifData: !!exifData,
-          hasC2paData: !!c2paData,
         }),
       };
     }
