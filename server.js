@@ -392,10 +392,12 @@ export const handler = async (event) => {
       console.log("origin:", validOrigin);
       console.log("sha256Hash:", sha256Hash);
       console.log("pHash:", pHash);
+      console.log("originalUrl:", url);
       const dynamoDBItem = {
         ImageHash: { S: sha256Hash },
         PHash: { S: pHash },
         s3ObjectUrl: { S: s3ObjectUrl },
+        originalUrl: { S: url || "" },  // Add this line
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
         requestCount: { N: "1" },
@@ -406,11 +408,6 @@ export const handler = async (event) => {
       // Only add originWebsites if it's not empty
       if (validOrigin && validOrigin.length > 0) {
         dynamoDBItem.originWebsites = { SS: [validOrigin] };
-      }
-
-      // Add imageOriginUrl only if it's defined
-      if (url) {
-        dynamoDBItem.imageOriginUrl = { S: url };
       }
 
       console.log("DynamoDB Item:", JSON.stringify(dynamoDBItem, null, 2));
