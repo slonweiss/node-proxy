@@ -15,7 +15,7 @@ import { parse } from "lambda-multipart-parser";
 import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
-import exifReader from "exif-reader";
+import ExifReader from "exif-reader";
 import * as c2pa from "c2pa";
 
 // Use environment variables
@@ -151,29 +151,26 @@ function getFileExtensionFromData(fileName, url, mimeType, fileData) {
   return { ext: ext || ".bin", extensionSource };
 }
 
-async function extractMetadata(fileData) {
-  let exifData = null;
-  let c2paData = null;
+async function extractAllMetadata(buffer) {
+  let metadata = {};
 
   try {
-    exifData = exifReader(fileData);
+    // Extract metadata using sharp
+    const sharpMetadata = await sharp(buffer).metadata();
+    metadata.sharp = sharpMetadata;
+
+    // Extract EXIF data
+    const exif = ExifReader.load(buffer);
+    metadata.exif = exif;
+
+    // Add any other metadata extraction here
+    // For example, if you have a way to extract C2PA data:
+    // metadata.c2pa = extractC2PAData(buffer);
   } catch (error) {
-    console.log(
-      "No Exif data found or error reading Exif data:",
-      error.message
-    );
+    console.error("Error extracting metadata:", error);
   }
 
-  try {
-    c2paData = await c2pa.read(fileData);
-  } catch (error) {
-    console.log(
-      "No C2PA data found or error reading C2PA data:",
-      error.message
-    );
-  }
-
-  return { exifData, c2paData };
+  return metadata;
 }
 
 export const handler = async (event) => {
@@ -249,10 +246,9 @@ export const handler = async (event) => {
     console.log(`Calculated pHash: ${pHash}`);
 
     // Extract metadata
-    const { exifData, c2paData } = await extractMetadata(fileData);
+    const allMetadata = await extractAllMetadata(fileData);
 
-    console.log("Extracted EXIF data:", exifData);
-    console.log("Extracted C2PA data:", c2paData);
+    console.log("Extracted metadata:", allMetadata);
 
     // Check for exact duplicate only
     const exactDuplicate = await dynamoDBClient.send(
@@ -380,15 +376,7 @@ export const handler = async (event) => {
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
-        width: { N: metadata.width.toString() },
-        height: { N: metadata.height.toString() },
-        colorSpace: { S: metadata.space || "unknown" },
-        bitDepth: { S: metadata.depth.toString() }, // Changed as requested
-        compression: metadata.compression
-          ? { S: metadata.compression }
-          : { NULL: true },
-        exifData: exifData ? { S: JSON.stringify(exifData) } : { NULL: true },
-        c2paData: c2paData ? { S: JSON.stringify(c2paData) } : { NULL: true },
+        allMetadata: { S: JSON.stringify(allMetadata) },
       };
 
       // Only add originWebsites if it's not empty
@@ -441,7 +429,8 @@ export const handler = async (event) => {
     }
   } catch (error) {
     console.error("Error processing image:", error);
-    console.error("Error details:", JSON.stringify(error, null, 2));
+    console.error("Error stack:", error.stack);
+    console.error("Metadata object:", allMetadata);
     return {
       statusCode: 500,
       headers: {
