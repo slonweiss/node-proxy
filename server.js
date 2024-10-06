@@ -398,11 +398,15 @@ export const handler = async (event) => {
         s3ObjectUrl: { S: s3ObjectUrl },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
-        originWebsites: { SS: validOrigin ? [validOrigin] : [] },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
-        extensionSource: { S: extensionSource },
+        extensionSource: { S: extensionSource }
       };
+
+      // Only add originWebsites if it's not empty
+      if (validOrigin && validOrigin.length > 0) {
+        dynamoDBItem.originWebsites = { SS: [validOrigin] };
+      }
 
       // Add imageOriginUrl only if it's defined
       if (url) {
