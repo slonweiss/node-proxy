@@ -157,6 +157,14 @@ Resources:
                   - iam:*
                 Resource: "*"
 
+  # Add this new resource to explicitly define the API Gateway
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    DeletionPolicy: Retain
+    Properties:
+      StageName: Prod
+      # You can add more properties here if needed
+
 Outputs:
   ApiUrl:
     Description: URL of the API endpoint
