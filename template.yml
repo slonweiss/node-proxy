@@ -7,6 +7,22 @@ Globals:
     Timeout: 30
     MemorySize: 128
 
+Parameters:
+  ExistingImageBucketName:
+    Type: String
+    Description: "The name of the existing S3 bucket for images"
+    Default: realeyes-ai-images
+
+  ExistingCacheTableName:
+    Type: String
+    Description: "The name of the existing DynamoDB Cache Table"
+    Default: RealEyesAICache
+
+  ExistingCommentTableName:
+    Type: String
+    Description: "The name of the existing DynamoDB Comment Table"
+    Default: RealEyesAIComments
+
 Resources:
   NodeJsProxyFunction:
     Type: AWS::Serverless::Function
@@ -18,13 +34,13 @@ Resources:
       Description: Node.js Proxy for RealEyes AI
       Environment:
         Variables:
-          S3_BUCKET: !Ref ImageBucket
-          DYNAMODB_TABLE: !Ref CacheTable
+          S3_BUCKET: !Ref ExistingImageBucketName
+          DYNAMODB_TABLE: !Ref ExistingCacheTableName
       Policies:
         - S3CrudPolicy:
-            BucketName: !Ref ImageBucket
+            BucketName: !Ref ExistingImageBucketName
         - DynamoDBCrudPolicy:
-            TableName: !Ref CacheTable
+            TableName: !Ref ExistingCacheTableName
       Events:
         ApiEvent:
           Type: Api
@@ -32,37 +48,34 @@ Resources:
             Path: /analyze-image
             Method: post
 
-  ImageBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: realeyes-ai-images
+  # Removed ImageBucket resource since it already exists
+  # ImageBucket:
+  #   Type: AWS::S3::Bucket
+  #   Properties:
+  #     BucketName: realeyes-ai-images
 
-  CacheTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: RealEyesAICache
-      AttributeDefinitions:
-        - AttributeName: ImageHash
-          AttributeType: S
-        - AttributeName: PHash
-          AttributeType: S
-        - AttributeName: ThumbsUp
-          AttributeType: N
-        - AttributeName: ThumbsDown
-          AttributeType: N
-        - AttributeName: Feedback
-          AttributeType: L
-      KeySchema:
-        - AttributeName: ImageHash
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: PHashIndex
-          KeySchema:
-            - AttributeName: PHash
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-      BillingMode: PAY_PER_REQUEST
+  # Updated CacheTable to reference existing table and corrected AttributeDefinitions
+  # Removed creation of CacheTable since it exists
+  # CacheTable:
+  #   Type: AWS::DynamoDB::Table
+  #   Properties:
+  #     TableName: RealEyesAICache
+  #     AttributeDefinitions:
+  #       - AttributeName: ImageHash
+  #         AttributeType: S
+  #       - AttributeName: PHash
+  #         AttributeType: S
+  #     KeySchema:
+  #       - AttributeName: ImageHash
+  #         KeyType: HASH
+  #     GlobalSecondaryIndexes:
+  #       - IndexName: PHashIndex
+  #         KeySchema:
+  #           - AttributeName: PHash
+  #             KeyType: HASH
+  #         Projection:
+  #           ProjectionType: ALL
+  #     BillingMode: PAY_PER_REQUEST
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
@@ -82,13 +95,13 @@ Resources:
       Description: Handle image feedback submissions
       Environment:
         Variables:
-          DYNAMODB_TABLE: !Ref CacheTable
-          COMMENT_TABLE: !Ref CommentTable
+          DYNAMODB_TABLE: !Ref ExistingCacheTableName
+          COMMENT_TABLE: !Ref ExistingCommentTableName
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref CacheTable
+            TableName: !Ref ExistingCacheTableName
         - DynamoDBCrudPolicy:
-            TableName: !Ref CommentTable
+            TableName: !Ref ExistingCommentTableName
       Events:
         ApiEvent:
           Type: Api
@@ -104,81 +117,37 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*/*"
 
-  CommentTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: RealEyesAIComments
-      AttributeDefinitions:
-        - AttributeName: ImageHash
-          AttributeType: S
-        - AttributeName: CommentId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: ImageHash
-          KeyType: HASH
-        - AttributeName: CommentId
-          KeyType: RANGE
-      BillingMode: PAY_PER_REQUEST
+  # Removed CommentTable resource since it already exists
+  # CommentTable:
+  #   Type: AWS::DynamoDB::Table
+  #   Properties:
+  #     TableName: RealEyesAIComments
+  #     AttributeDefinitions:
+  #       - AttributeName: ImageHash
+  #         AttributeType: S
+  #       - AttributeName: CommentId
+  #         AttributeType: S
+  #     KeySchema:
+  #       - AttributeName: ImageHash
+  #         KeyType: HASH
+  #       - AttributeName: CommentId
+  #         KeyType: RANGE
+  #     BillingMode: PAY_PER_REQUEST
 
-  CloudFormationDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: CloudFormation-DeployLambdaRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: cloudformation.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: DynamoDBFullAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource: "*"
-        - PolicyName: LambdaFullAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - lambda:*
-                Resource: "*"
-        - PolicyName: IAMFullAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - iam:*
-                Resource: "*"
+  # Removed CloudFormationDeployRole since it already exists
+  # CloudFormationDeployRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     RoleName: CloudFormation-DeployLambdaRole
+  #     ...
 
-  # Add this new resource to explicitly define the API Gateway
   ServerlessRestApi:
     Type: AWS::Serverless::Api
     DeletionPolicy: Retain
     Properties:
       StageName: Prod
-      # You can add more properties here if needed
 
 Outputs:
   ApiUrl:
     Description: URL of the API endpoint
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/analyze-image"
-
-Metadata:
-  AWS::ServerlessRepo::Application:
-    Name: RealEyesAi
-    Description: RealEyes.ai Deepfake Detection
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      - Label:
-          default: "SAM Settings"
-        Parameters:
-          - StackName
-  AWS::CloudFormation::Stack:
-    Capabilities: [CAPABILITY_NAMED_IAM]
