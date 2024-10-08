@@ -222,8 +222,14 @@ export const handler = async (event) => {
     };
   }
 
+  // Decode the body if it's base64-encoded
+  if (event.isBase64Encoded) {
+    event.body = Buffer.from(event.body, "base64").toString("binary");
+  }
+
+  let allMetadata = {}; // Move this declaration here
+
   try {
-    let allMetadata = {};
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
     console.log("Content-Type:", contentType);
@@ -273,6 +279,14 @@ export const handler = async (event) => {
     if (!Buffer.isBuffer(fileData)) {
       fileData = Buffer.from(fileData, "binary");
     }
+
+    // Log file data after ensuring it's a Buffer
+    console.log(`File size after Buffer check: ${fileData.length} bytes`);
+    console.log(
+      `First 16 bytes after Buffer check: ${fileData
+        .slice(0, 16)
+        .toString("hex")}`
+    );
 
     // Calculate both hashes
     const sha256Hash = crypto
