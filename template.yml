@@ -83,9 +83,12 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE: !Ref CacheTable
+          COMMENT_TABLE: !Ref CommentTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref CacheTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentTable
       Events:
         ApiEvent:
           Type: Api
@@ -116,6 +119,43 @@ Resources:
         - AttributeName: CommentId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+
+  CloudFormationDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudFormation-DeployLambdaRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBFullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: "*"
+        - PolicyName: LambdaFullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:*
+                Resource: "*"
+        - PolicyName: IAMFullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:*
+                Resource: "*"
 
 Outputs:
   ApiUrl:
