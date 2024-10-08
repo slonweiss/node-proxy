@@ -17,6 +17,7 @@ import imghash from "imghash";
 import sharp from "sharp";
 import ExifReader from "exif-reader";
 import * as c2pa from "c2pa";
+import multipart from "parse-multipart";
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -197,76 +198,70 @@ async function extractAllMetadata(buffer) {
 }
 
 export const handler = async (event) => {
-  console.log("Received event:", JSON.stringify(event, null, 2));
-
-  const origin = event.headers["Origin"] || event.headers["origin"];
-  const allowOrigin = allowedOrigins.includes(origin)
-    ? origin
-    : allowedOrigins[0];
-
-  // CORS headers
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        "Access-Control-Max-Age": "86400",
-      },
-      body: "",
-    };
-  }
-
-  // Decode the body if it's base64-encoded
-  if (event.isBase64Encoded) {
-    event.body = Buffer.from(event.body, "base64").toString("binary");
-  }
-
-  let allMetadata = {}; // Move this declaration here
-
   try {
+    console.log("Received event:", JSON.stringify(event, null, 2));
+
+    // Check if the body is base64 encoded
+    const body = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64").toString("utf8")
+      : event.body;
+
+    // Get the boundary from the content type header
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
-    console.log("Content-Type:", contentType);
+    const boundary = multipart.getBoundary(contentType);
 
-    if (!contentType || !contentType.includes("multipart/form-data")) {
-      console.error("Invalid or missing Content-Type header");
-      return {
-        statusCode: 400,
-        headers: {
-          ...corsHeaders,
-        },
-        body: JSON.stringify({ error: "Invalid Content-Type" }),
-      };
+    if (!boundary) {
+      throw new Error("No multipart boundary found");
     }
 
     // Parse the multipart form data
-    const result = await parse(event);
+    const parts = multipart.Parse(Buffer.from(body), boundary);
 
-    // Add this after parsing the multipart form data
-    console.log("Received form fields:");
-    if (result.fields) {
-      for (const [key, value] of Object.entries(result.fields)) {
-        console.log(`${key}: ${value}`);
-      }
-    } else {
-      console.log("No form fields received");
+    console.log("Parsed parts:", parts);
+
+    if (parts.length === 0) {
+      throw new Error("No parts found in multipart data");
     }
 
-    if (!result.files || result.files.length === 0) {
-      throw new Error("No files found in the request");
+    // Find the image file
+    const imagePart = parts.find(
+      (part) => part.filename && part.type.startsWith("image/")
+    );
+
+    if (!imagePart) {
+      throw new Error("No image file found in request");
     }
 
-    const file = result.files[0];
-    let fileData = file.content;
-    const fileName = file.filename;
-    const mimeType = file.contentType;
-    const url = file.url;
+    const origin = event.headers["Origin"] || event.headers["origin"];
+    const allowOrigin = allowedOrigins.includes(origin)
+      ? origin
+      : allowedOrigins[0];
+
+    // CORS headers
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": allowOrigin,
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (event.httpMethod === "OPTIONS") {
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          "Access-Control-Max-Age": "86400",
+        },
+        body: "",
+      };
+    }
+
+    let allMetadata = {}; // Move this declaration here
+
+    const fileData = imagePart.data;
+    const fileName = imagePart.filename;
+    const mimeType = imagePart.type;
+    const url = imagePart.url;
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
