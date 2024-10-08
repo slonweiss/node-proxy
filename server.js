@@ -235,44 +235,32 @@ export const handler = async (event) => {
       event.headers["content-type"] || event.headers["Content-Type"];
     console.log("Content-Type:", contentType);
 
-    if (!contentType || !contentType.includes("multipart/form-data")) {
-      console.error("Invalid or missing Content-Type header");
-      return {
-        statusCode: 400,
-        headers: {
-          ...corsHeaders,
-        },
-        body: JSON.stringify({ error: "Invalid Content-Type" }),
-      };
+    if (!contentType || !contentType.startsWith("multipart/form-data")) {
+      throw new Error("Invalid Content-Type. Expected multipart/form-data");
     }
 
-    // Parse the multipart form data
-    let parts;
-    try {
-      parts = multipart.Parse(event.body, boundary);
-    } catch (error) {
-      console.error("Error parsing multipart data:", error);
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Invalid multipart data" }),
-      };
+    const boundary = contentType.split("boundary=")[1];
+    if (!boundary) {
+      throw new Error("Boundary not found in Content-Type header");
     }
+
+    const parts = multipart.parse(Buffer.from(event.body, "base64"), boundary);
 
     // Add this after parsing the multipart form data
     console.log("Received form fields:");
-    if (result.fields) {
-      for (const [key, value] of Object.entries(result.fields)) {
+    if (parts.fields) {
+      for (const [key, value] of Object.entries(parts.fields)) {
         console.log(`${key}: ${value}`);
       }
     } else {
       console.log("No form fields received");
     }
 
-    if (!result.files || result.files.length === 0) {
+    if (!parts.files || parts.files.length === 0) {
       throw new Error("No files found in the request");
     }
 
-    const file = result.files[0];
+    const file = parts.files[0];
     let fileData = file.content;
     const fileName = file.filename;
     const mimeType = file.contentType;
