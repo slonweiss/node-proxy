@@ -38,6 +38,7 @@ const allowedOrigins = [
   "https://www.instagram.com",
   "https://www.reddit.com",
   "https://realeyes.ai",
+  "https://api.realeyes.ai",
 ];
 
 // Utility function to convert stream to buffer
@@ -198,18 +199,23 @@ async function extractAllMetadata(buffer) {
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
-  const origin = event.headers["X-Origin"] || event.headers["x-origin"];
+  const origin = event.headers["Origin"] || event.headers["origin"];
   const allowOrigin = allowedOrigins.includes(origin)
     ? origin
     : allowedOrigins[0];
+
+  // CORS headers
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
 
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
       headers: {
-        "Access-Control-Allow-Origin": allowOrigin,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        ...corsHeaders,
         "Access-Control-Max-Age": "86400",
       },
       body: "",
@@ -227,7 +233,7 @@ export const handler = async (event) => {
       return {
         statusCode: 400,
         headers: {
-          "Access-Control-Allow-Origin": allowOrigin,
+          ...corsHeaders,
         },
         body: JSON.stringify({ error: "Invalid Content-Type" }),
       };
@@ -328,8 +334,8 @@ export const handler = async (event) => {
       return {
         statusCode: 200,
         headers: {
+          ...corsHeaders,
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": allowOrigin,
         },
         body: JSON.stringify({
           message: "File already exists",
@@ -444,10 +450,8 @@ export const handler = async (event) => {
       return {
         statusCode: 200,
         headers: {
+          ...corsHeaders,
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": allowOrigin,
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
         },
         body: JSON.stringify({
           message: "Image uploaded successfully",
@@ -471,10 +475,8 @@ export const handler = async (event) => {
     return {
       statusCode: 500,
       headers: {
+        ...corsHeaders,
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": allowOrigin,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
       },
       body: JSON.stringify({
         error: "Internal server error",
