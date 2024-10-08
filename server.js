@@ -17,7 +17,6 @@ import imghash from "imghash";
 import sharp from "sharp";
 import ExifReader from "exif-reader";
 import * as c2pa from "c2pa";
-import multipart from "parse-multipart";
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -223,48 +222,23 @@ export const handler = async (event) => {
     };
   }
 
-  // Decode the body if it's base64-encoded
-  if (event.isBase64Encoded) {
-    event.body = Buffer.from(event.body, "base64").toString("binary");
-  }
-
-  let allMetadata = {}; // Move this declaration here
+  let allMetadata = {};
 
   try {
-    const contentType =
-      event.headers["content-type"] || event.headers["Content-Type"];
-    console.log("Content-Type:", contentType);
+    const result = await parse(event);
+    const { files, fields } = result;
 
-    if (!contentType || !contentType.startsWith("multipart/form-data")) {
-      throw new Error("Invalid Content-Type. Expected multipart/form-data");
-    }
+    console.log("Received form fields:", fields);
 
-    const boundary = contentType.split("boundary=")[1];
-    if (!boundary) {
-      throw new Error("Boundary not found in Content-Type header");
-    }
-
-    const parts = multipart.parse(Buffer.from(event.body, "base64"), boundary);
-
-    // Add this after parsing the multipart form data
-    console.log("Received form fields:");
-    if (parts.fields) {
-      for (const [key, value] of Object.entries(parts.fields)) {
-        console.log(`${key}: ${value}`);
-      }
-    } else {
-      console.log("No form fields received");
-    }
-
-    if (!parts.files || parts.files.length === 0) {
+    if (!files || files.length === 0) {
       throw new Error("No files found in the request");
     }
 
-    const file = parts.files[0];
+    const file = files[0];
     let fileData = file.content;
     const fileName = file.filename;
     const mimeType = file.contentType;
-    const url = file.url;
+    const url = fields.url || "";
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
@@ -272,19 +246,9 @@ export const handler = async (event) => {
     console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
 
     // Ensure fileData is a Buffer
-    console.log(`Type of fileData: ${typeof fileData}`);
-    console.log(`Is fileData a Buffer: ${Buffer.isBuffer(fileData)}`);
     if (!Buffer.isBuffer(fileData)) {
       fileData = Buffer.from(fileData, "binary");
     }
-
-    // Log file data after ensuring it's a Buffer
-    console.log(`File size after Buffer check: ${fileData.length} bytes`);
-    console.log(
-      `First 16 bytes after Buffer check: ${fileData
-        .slice(0, 16)
-        .toString("hex")}`
-    );
 
     // Calculate both hashes
     const sha256Hash = crypto
