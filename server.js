@@ -225,7 +225,36 @@ export const handler = async (event) => {
   let allMetadata = {};
 
   try {
-    const result = await parse(event);
+    const contentType =
+      event.headers["content-type"] || event.headers["Content-Type"];
+    console.log("Content-Type:", contentType);
+
+    if (!contentType || !contentType.includes("multipart/form-data")) {
+      console.error("Invalid or missing Content-Type header");
+      return {
+        statusCode: 400,
+        headers: {
+          ...corsHeaders,
+        },
+        body: JSON.stringify({ error: "Invalid Content-Type" }),
+      };
+    }
+
+    // Decode the base64 body if necessary
+    const decodedBody = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64").toString("binary")
+      : event.body;
+
+    console.log("Is base64 encoded:", event.isBase64Encoded);
+    console.log("First 100 characters of body:", decodedBody.slice(0, 100));
+
+    // Parse the multipart form data using the decoded body
+    const result = await parse({
+      ...event,
+      body: decodedBody,
+      isBase64Encoded: false, // Since we've already decoded it
+    });
+
     const { files, fields } = result;
 
     console.log("Received form fields:", fields);
@@ -235,7 +264,9 @@ export const handler = async (event) => {
     }
 
     const file = files[0];
-    let fileData = file.content;
+    let fileData = Buffer.isBuffer(file.content)
+      ? file.content
+      : Buffer.from(file.content, "binary");
     const fileName = file.filename;
     const mimeType = file.contentType;
     const url = fields.url || "";
@@ -244,11 +275,6 @@ export const handler = async (event) => {
     console.log(`File size: ${fileData.length} bytes`);
     console.log(`Content-Type: ${mimeType}`);
     console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
-
-    // Ensure fileData is a Buffer
-    if (!Buffer.isBuffer(fileData)) {
-      fileData = Buffer.from(fileData, "binary");
-    }
 
     // Calculate both hashes
     const sha256Hash = crypto
