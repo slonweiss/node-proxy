@@ -249,14 +249,18 @@ export const handler = async (event) => {
     console.log("First 100 characters of body:", decodedBody.slice(0, 100));
 
     // Parse the multipart form data using the decoded body
+    console.log("Parsing multipart form data...");
     const result = await parse({
       ...event,
       body: decodedBody,
       isBase64Encoded: false, // Since we've already decoded it
     });
 
+    console.log("Parse result:", JSON.stringify(result, null, 2));
+
     const { files, fields } = result;
 
+    console.log("Received files:", files ? files.length : "undefined");
     console.log("Received form fields:", fields);
 
     if (!files || files.length === 0) {
@@ -269,12 +273,13 @@ export const handler = async (event) => {
       : Buffer.from(file.content, "binary");
     const fileName = file.filename;
     const mimeType = file.contentType;
-    const url = fields.url || "";
+    const url = fields?.url || "";
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
     console.log(`Content-Type: ${mimeType}`);
     console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
+    console.log(`URL: ${url}`);
 
     // Calculate both hashes
     const sha256Hash = crypto
