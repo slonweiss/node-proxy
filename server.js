@@ -204,6 +204,17 @@ async function extractAllMetadata(buffer) {
 
 const invokeSageMaker = async (imageBuffer) => {
   try {
+    console.log(
+      "SageMaker Endpoint Name:",
+      process.env.SAGEMAKER_ENDPOINT_NAME
+    );
+
+    if (!process.env.SAGEMAKER_ENDPOINT_NAME) {
+      throw new Error(
+        "SAGEMAKER_ENDPOINT_NAME environment variable is not set"
+      );
+    }
+
     // Convert buffer to base64
     const base64Image = imageBuffer.toString("base64");
 
@@ -222,6 +233,10 @@ const invokeSageMaker = async (imageBuffer) => {
       isFake: result.is_fake,
     };
   } catch (error) {
+    console.error("SageMaker Configuration:", {
+      endpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
+      region: process.env.AWS_REGION,
+    });
     console.error("Error invoking SageMaker endpoint:", error);
     throw error;
   }

@@ -23,6 +23,11 @@ Parameters:
     Description: "The name of the existing DynamoDB Comment Table"
     Default: RealEyesAIComments
 
+  SageMakerEndpointName:
+    Type: String
+    Description: "The name of the SageMaker endpoint to invoke"
+    Default: "pytorch-inference-endpoint"
+
 Resources:
   NodeJsProxyFunction:
     Type: AWS::Serverless::Function
@@ -36,11 +41,18 @@ Resources:
         Variables:
           S3_BUCKET: !Ref ExistingImageBucketName
           DYNAMODB_TABLE: !Ref ExistingCacheTableName
+          SAGEMAKER_ENDPOINT_NAME: !Ref SageMakerEndpointName
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref ExistingImageBucketName
         - DynamoDBCrudPolicy:
             TableName: !Ref ExistingCacheTableName
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - "sagemaker:InvokeEndpoint"
+              Resource: !Sub "arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${SageMakerEndpointName}"
       Events:
         ApiEvent:
           Type: Api
