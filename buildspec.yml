@@ -9,10 +9,10 @@ phases:
       - 'echo "Using artifact bucket: node-codebuild-artifacts"'
       - "npm install"
       - "sam build"
+      - "sam package --s3-bucket node-codebuild-artifacts --output-template-file packaged.yaml --parameter-overrides SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605"
   post_build:
     commands:
-      - "sam deploy --s3-bucket node-codebuild-artifacts --stack-name realeyes-ai-lambda --capabilities CAPABILITY_IAM --parameter-overrides SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605"
-      - 'echo "SAM deployment completed on `date`"'
+      - 'echo "SAM packaging completed on `date`"'
 
 artifacts:
   files:
