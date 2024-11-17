@@ -336,8 +336,11 @@ export const handler = async (event) => {
 
     const { files, fields } = result;
 
-    console.log("Received files:", files ? files.length : "undefined");
-    console.log("Received form fields:", fields);
+    // The URL is at the top level of the result, not in fields
+    const url = result.url || "";
+
+    console.log("URL from result:", result.url);
+    console.log("Processed URL value:", url);
 
     if (!files || files.length === 0) {
       throw new Error("No files found in the request");
@@ -349,7 +352,6 @@ export const handler = async (event) => {
       : Buffer.from(file.content, "binary");
     const fileName = file.filename;
     const mimeType = file.contentType;
-    const url = fields?.url || "";
     console.log("URL from fields:", fields?.url);
     console.log("Processed URL value:", url);
 
