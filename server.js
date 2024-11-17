@@ -17,6 +17,10 @@ import imghash from "imghash";
 import sharp from "sharp";
 import ExifReader from "exif-reader";
 import * as c2pa from "c2pa";
+import {
+  SageMakerRuntimeClient,
+  InvokeEndpointCommand,
+} from "@aws-sdk/client-sagemaker-runtime";
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -29,6 +33,8 @@ const s3Client = new S3Client({
 });
 
 const dynamoDBClient = new DynamoDBClient({ region: awsRegion });
+
+const sageMakerClient = new SageMakerRuntimeClient({ region: awsRegion });
 
 const allowedOrigins = [
   "https://www.linkedin.com",
@@ -196,6 +202,31 @@ async function extractAllMetadata(buffer) {
   return metadata;
 }
 
+const invokeSageMaker = async (imageBuffer) => {
+  try {
+    // Convert buffer to base64
+    const base64Image = imageBuffer.toString("base64");
+
+    const command = new InvokeEndpointCommand({
+      EndpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
+      ContentType: "application/json",
+      Body: JSON.stringify({ image: base64Image }),
+    });
+
+    const response = await sageMakerClient.send(command);
+    const result = JSON.parse(Buffer.from(response.Body).toString("utf8"));
+
+    return {
+      logit: result.logit,
+      probability: result.probability,
+      isFake: result.is_fake,
+    };
+  } catch (error) {
+    console.error("Error invoking SageMaker endpoint:", error);
+    throw error;
+  }
+};
+
 export const handler = async (event) => {
   console.log("Received event:", JSON.stringify(event, null, 2));
 
@@ -294,7 +325,9 @@ export const handler = async (event) => {
     // Extract metadata
     allMetadata = await extractAllMetadata(fileData);
 
-    console.log("Extracted metadata:", allMetadata);
+    // Add SageMaker analysis
+    const sageMakerResult = await invokeSageMaker(fileData);
+    console.log("SageMaker analysis result:", sageMakerResult);
 
     // Check for exact duplicate only
     const exactDuplicate = await dynamoDBClient.send(
@@ -423,6 +456,13 @@ export const handler = async (event) => {
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
         allMetadata: { S: JSON.stringify(allMetadata) },
+        sageMakerAnalysisCorvi23: {
+          M: {
+            logit: { N: sageMakerResult.logit.toString() },
+            probability: { N: sageMakerResult.probability.toString() },
+            isFake: { BOOL: sageMakerResult.isFake },
+          },
+        },
       };
 
       // Only add originWebsites if it's not empty
@@ -472,6 +512,7 @@ export const handler = async (event) => {
           imageOriginUrl: url,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
+          sageMakerAnalysis: sageMakerResult,
         }),
       };
     }
