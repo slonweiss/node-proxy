@@ -6,15 +6,21 @@ phases:
       nodejs: 20
   build:
     commands:
-      - "echo Using artifact bucket: node-codebuild-artifacts"
+      - echo "Using artifact bucket: node-codebuild-artifacts"
       - npm install
       - sam build
-      - sam package
-        --s3-bucket node-codebuild-artifacts
-        --output-template-file packaged.yaml
-        --parameter-overrides SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605
+      - |
+        sam package \
+        --s3-bucket node-codebuild-artifacts \
+        --output-template-file packaged.yaml \
+        --parameter-overrides "SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605"
+  post_build:
+    commands:
+      - echo "SAM packaging completed on `date`"
 
 artifacts:
   files:
     - packaged.yaml
-  discard-paths: yes
+    - .aws-sam/**/*
+    - template.yml
+  discard-paths: no
