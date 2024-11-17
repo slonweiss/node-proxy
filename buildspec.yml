@@ -9,7 +9,10 @@ phases:
       - "echo Using artifact bucket: node-codebuild-artifacts"
       - npm install
       - sam build
-      - sam package --s3-bucket node-codebuild-artifacts --output-template-file packaged.yaml
+      - sam package
+        --s3-bucket node-codebuild-artifacts
+        --output-template-file packaged.yaml
+        --parameter-overrides SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605
 
 artifacts:
   files:
