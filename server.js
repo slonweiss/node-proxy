@@ -243,7 +243,23 @@ const invokeSageMaker = async (imageBuffer) => {
 };
 
 export const handler = async (event) => {
-  console.log("Received event:", JSON.stringify(event, null, 2));
+  console.log(
+    "Received event:",
+    JSON.stringify(
+      {
+        ...event,
+        body: event.isBase64Encoded
+          ? "[Base64 body truncated]"
+          : "[Body truncated]",
+        // Include other relevant event properties you want to log
+        httpMethod: event.httpMethod,
+        headers: event.headers,
+        queryStringParameters: event.queryStringParameters,
+      },
+      null,
+      2
+    )
+  );
 
   const origin = event.headers["Origin"] || event.headers["origin"];
   const allowOrigin = allowedOrigins.includes(origin)
@@ -302,7 +318,21 @@ export const handler = async (event) => {
       isBase64Encoded: false, // Since we've already decoded it
     });
 
-    console.log("Parse result:", JSON.stringify(result, null, 2));
+    console.log(
+      "Parse result:",
+      JSON.stringify(
+        {
+          ...result,
+          files: result.files?.map((file) => ({
+            ...file,
+            content: "[File content truncated]",
+          })),
+          fields: result.fields,
+        },
+        null,
+        2
+      )
+    );
 
     const { files, fields } = result;
 
@@ -320,6 +350,8 @@ export const handler = async (event) => {
     const fileName = file.filename;
     const mimeType = file.contentType;
     const url = fields?.url || "";
+    console.log("URL from fields:", fields?.url);
+    console.log("Processed URL value:", url);
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
