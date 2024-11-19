@@ -43,7 +43,7 @@ Analyzes an image and stores results.
 
 **Response:**
 
-````json
+```json
 {
   "message": "Image uploaded successfully",
   "imageHash": "sha256-hash",
@@ -63,10 +63,13 @@ Analyzes an image and stores results.
   }
 }
 ```
+
 ### POST /submit-feedback
+
 Submits user feedback for an analyzed image.
 
 **Request:**
+
 ```json
 {
   "imageHash": "sha256-hash",
@@ -74,6 +77,7 @@ Submits user feedback for an analyzed image.
   "comment": "User feedback comment"
 }
 ```
+
 ## Security
 
 - CORS restrictions for allowed origins
@@ -105,4 +109,7 @@ The project uses Node.js 20.x with the following key dependencies:
 ## License
 
 ISC
-````
+
+```
+
+```
