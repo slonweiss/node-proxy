@@ -2,5 +2,5 @@ version = 0.1
 [default.deploy.parameters]
 stack_name = "realeyes-ai-lambda"
 parameter_overrides = [
-    "SageMakerEndpointName=pytorch-inference-2024-11-17-20-45-54-605"
+    "SageMakerEndpointName=pytorch-inference-2024-11-19-00-44-44-887"
 ]
