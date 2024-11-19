@@ -62,6 +62,7 @@ Analyzes an image and stores results.
     "isFake": false
   }
 }
+```
 ### POST /submit-feedback
 Submits user feedback for an analyzed image.
 
@@ -72,7 +73,7 @@ Submits user feedback for an analyzed image.
   "feedbackType": "up|down",
   "comment": "User feedback comment"
 }
-
+```
 ## Security
 
 - CORS restrictions for allowed origins
