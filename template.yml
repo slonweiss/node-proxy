@@ -26,7 +26,7 @@ Parameters:
   SageMakerEndpointName:
     Type: String
     Description: "The name of the SageMaker endpoint to invoke"
-    Default: "pytorch-inference-2024-11-19-22-27-48-658"
+    Default: "pytorch-inference-2024-11-22-00-26-13-382"
 
 Resources:
   NodeJsProxyFunction:
