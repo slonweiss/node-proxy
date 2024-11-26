@@ -335,7 +335,16 @@ export const handler = async (event) => {
     );
 
     const { files, fields } = result;
-    const storeData = fields?.storeData === "true";
+    // Convert storeData string to boolean, handling various string formats
+    const storeData =
+      fields?.storeData?.toLowerCase?.() === "true" ||
+      fields?.storeData === "1";
+    console.log("Parsed form data:", {
+      storeData,
+      fieldsReceived: fields,
+      storeDataRawValue: fields?.storeData,
+      storeDataType: typeof fields?.storeData,
+    });
 
     // The URL is at the top level of the result, not in fields
     const url = result.url || "";
@@ -469,6 +478,7 @@ export const handler = async (event) => {
       let s3DataHash = "";
 
       if (storeData) {
+        console.log("Starting S3 upload process - storeData is true");
         // Only store in S3 if storeData is true
         console.log("Uploading to S3...");
         const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
@@ -502,6 +512,8 @@ export const handler = async (event) => {
           `Data match between original and S3 object: ${isDataEqual}`
         );
         console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
+      } else {
+        console.log("Skipping S3 upload - storeData is false");
       }
 
       // Save to DynamoDB with conditional S3 information
@@ -527,13 +539,23 @@ export const handler = async (event) => {
 
       // Only add S3-related fields if storeData is true
       if (storeData) {
+        console.log("Adding S3 URL to DynamoDB item");
         dynamoDBItem.s3ObjectUrl = { S: s3ObjectUrl };
+      } else {
+        console.log("Skipping S3 URL in DynamoDB item - storeData is false");
       }
 
       // Only add originWebsites if it's not empty
       if (origin && origin.length > 0) {
         dynamoDBItem.originWebsites = { SS: [origin] };
       }
+
+      console.log("Final DynamoDB item structure:", {
+        hasS3Url: !!dynamoDBItem.s3ObjectUrl,
+        storeData,
+        imageHash: dynamoDBItem.ImageHash.S,
+        metadataFields: Object.keys(dynamoDBItem),
+      });
 
       try {
         await dynamoDBClient.send(
