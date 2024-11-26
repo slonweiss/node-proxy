@@ -131,6 +131,7 @@ Resources:
 
   CommentTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
     Properties:
       TableName: !Ref ExistingCommentTableName
       AttributeDefinitions:
@@ -144,7 +145,6 @@ Resources:
         - AttributeName: UserId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
-    DeletionPolicy: Retain
 
   ServerlessRestApi:
     Type: AWS::Serverless::Api
@@ -155,32 +155,43 @@ Resources:
   CloudFormationDeploymentPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
+      Description: "Policy for CloudFormation to manage DynamoDB tables"
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Action:
-              - dynamodb:CreateTable
-              - dynamodb:DeleteTable
-              - dynamodb:DescribeTable
-              - dynamodb:UpdateTable
-              - dynamodb:TagResource
-              - dynamodb:UntagResource
-              - dynamodb:ListTagsOfResource
-            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCommentTableName}"
+              - "dynamodb:CreateTable"
+              - "dynamodb:DeleteTable"
+              - "dynamodb:DescribeTable"
+              - "dynamodb:UpdateTable"
+              - "dynamodb:PutItem"
+              - "dynamodb:GetItem"
+              - "dynamodb:Scan"
+              - "dynamodb:Query"
+              - "dynamodb:UpdateItem"
+              - "dynamodb:DeleteItem"
+            Resource:
+              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCommentTableName}"
+              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCacheTableName}"
 
   DeploymentRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: CloudFormation-DeployLambdaRole
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Service: cloudformation.amazonaws.com
-            Action: sts:AssumeRole
+              Service:
+                - cloudformation.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
       ManagedPolicyArns:
         - !Ref CloudFormationDeploymentPolicy
+        - "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+        - "arn:aws:iam::aws:policy/AmazonAPIGatewayAdministrator"
 
 Outputs:
   ApiUrl:
