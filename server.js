@@ -289,12 +289,11 @@ const verifyToken = (authHeader) => {
 };
 
 // Add after other utility functions
-const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
+const logImageRequest = async (imageHash, userId, origin) => {
   console.log("Attempting to log image request:", {
     imageHash,
     userId,
     origin,
-    sageMakerResult,
   });
 
   const timestamp = new Date().toISOString();
@@ -302,17 +301,10 @@ const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
 
   const logItem = {
     requestId: { S: requestId },
-    timestamp: { S: timestamp },
-    imageHash: { S: imageHash },
     userId: { S: userId || "anonymous" },
+    imageHash: { S: imageHash },
+    timestamp: { S: timestamp },
     origin: { S: origin || "unknown" },
-    sageMakerResult: {
-      M: {
-        logit: { N: sageMakerResult.logit.toString() },
-        probability: { N: sageMakerResult.probability.toString() },
-        isFake: { BOOL: sageMakerResult.isFake },
-      },
-    },
   };
 
   console.log("Constructed DynamoDB item:", JSON.stringify(logItem, null, 2));
@@ -333,7 +325,7 @@ const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
       errorMessage: error.message,
       stackTrace: error.stack,
     });
-    throw error; // Re-throw to handle it in the main try-catch block
+    throw error;
   }
 };
 
@@ -682,14 +674,13 @@ export const handler = async (event) => {
 
       // Add after SageMaker analysis
       try {
-        await logImageRequest(sha256Hash, userId, origin, sageMakerResult);
+        await logImageRequest(sha256Hash, userId, origin);
         console.log("Request logging completed successfully");
       } catch (loggingError) {
         console.error(
           "Failed to log request, but continuing with response:",
           loggingError
         );
-        // Don't throw the error here to avoid failing the whole request
       }
 
       // Return response
