@@ -129,6 +129,31 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*/*/*"
 
+  DynamoDBPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DynamoDBTableAccess
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "dynamodb:CreateTable"
+              - "dynamodb:DeleteTable"
+              - "dynamodb:DescribeTable"
+              - "dynamodb:UpdateTable"
+              - "dynamodb:PutItem"
+              - "dynamodb:GetItem"
+              - "dynamodb:Query"
+              - "dynamodb:Scan"
+              - "dynamodb:UpdateItem"
+              - "dynamodb:DeleteItem"
+            Resource:
+              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCommentTableName}"
+              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCacheTableName}"
+      Roles:
+        - CloudFormation-DeployLambdaRole
+
   CommentTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
