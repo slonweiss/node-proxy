@@ -132,6 +132,7 @@ Resources:
   CommentTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Ref ExistingCommentTableName
       AttributeDefinitions:
@@ -145,53 +146,13 @@ Resources:
         - AttributeName: UserId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+    RoleName: !Sub "arn:aws:iam::${AWS::AccountId}:role/CloudFormation-DeployLambdaRole"
 
   ServerlessRestApi:
     Type: AWS::Serverless::Api
     DeletionPolicy: Retain
     Properties:
       StageName: Prod
-
-  CloudFormationDeploymentPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Description: "Policy for CloudFormation to manage DynamoDB tables"
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - "dynamodb:CreateTable"
-              - "dynamodb:DeleteTable"
-              - "dynamodb:DescribeTable"
-              - "dynamodb:UpdateTable"
-              - "dynamodb:PutItem"
-              - "dynamodb:GetItem"
-              - "dynamodb:Scan"
-              - "dynamodb:Query"
-              - "dynamodb:UpdateItem"
-              - "dynamodb:DeleteItem"
-            Resource:
-              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCommentTableName}"
-              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCacheTableName}"
-
-  DeploymentRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: CloudFormation-DeployLambdaRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - cloudformation.amazonaws.com
-            Action:
-              - "sts:AssumeRole"
-      ManagedPolicyArns:
-        - !Ref CloudFormationDeploymentPolicy
-        - "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
-        - "arn:aws:iam::aws:policy/AmazonAPIGatewayAdministrator"
 
 Outputs:
   ApiUrl:
