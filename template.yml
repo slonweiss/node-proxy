@@ -28,6 +28,11 @@ Parameters:
     Description: "The name of the SageMaker endpoint to invoke"
     Default: "dmimagedetect"
 
+  ExistingRequestLogTableName:
+    Type: String
+    Description: "The name of the existing DynamoDB Request Log Table"
+    Default: RealEyesAIRequestLog
+
 Resources:
   NodeJsProxyFunction:
     Type: AWS::Serverless::Function
@@ -42,11 +47,14 @@ Resources:
           S3_BUCKET: !Ref ExistingImageBucketName
           DYNAMODB_TABLE: !Ref ExistingCacheTableName
           SAGEMAKER_ENDPOINT_NAME: !Ref SageMakerEndpointName
+          REQUEST_LOG_TABLE: !Ref ExistingRequestLogTableName
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref ExistingImageBucketName
         - DynamoDBCrudPolicy:
             TableName: !Ref ExistingCacheTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExistingRequestLogTableName
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow

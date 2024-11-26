@@ -266,6 +266,51 @@ function processImageUrl(url) {
   return url;
 }
 
+// Add JWT verification function
+const verifyToken = (authHeader) => {
+  try {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+    const token = authHeader.split(" ")[1];
+    // Note: This is a simple JWT decode without verification
+    // In production, you should verify the JWT signature
+    const decoded = Buffer.from(token.split(".")[1], "base64").toString();
+    return JSON.parse(decoded);
+  } catch (error) {
+    console.error("Error decoding JWT:", error);
+    return null;
+  }
+};
+
+// Add after other utility functions
+const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
+  const timestamp = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+
+  const logItem = {
+    requestId: { S: requestId },
+    timestamp: { S: timestamp },
+    imageHash: { S: imageHash },
+    userId: { S: userId || "anonymous" },
+    origin: { S: origin || "unknown" },
+    sageMakerResult: {
+      M: {
+        logit: { N: sageMakerResult.logit.toString() },
+        probability: { N: sageMakerResult.probability.toString() },
+        isFake: { BOOL: sageMakerResult.isFake },
+      },
+    },
+  };
+
+  await dynamoDBClient.send(
+    new PutItemCommand({
+      TableName: process.env.REQUEST_LOG_TABLE,
+      Item: logItem,
+    })
+  );
+};
+
 export const handler = async (event) => {
   console.log(
     "Received event:",
