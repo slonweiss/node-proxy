@@ -335,6 +335,7 @@ export const handler = async (event) => {
     );
 
     const { files, fields } = result;
+    const storeData = fields?.storeData === "true";
 
     // The URL is at the top level of the result, not in fields
     const url = result.url || "";
@@ -450,8 +451,8 @@ export const handler = async (event) => {
         }),
       };
     } else {
-      // Proceed with upload and saving to DynamoDB
-      console.log("Uploading to S3...");
+      // Proceed with analysis and conditional storage
+      console.log("Processing new image...");
       console.log(`Original fileName: ${fileName}`);
       console.log(`Detected mimeType: ${mimeType}`);
       const { ext: fileExtension, extensionSource } = getFileExtensionFromData(
@@ -462,58 +463,54 @@ export const handler = async (event) => {
       );
       console.log(`Determined fileExtension: ${fileExtension}`);
       console.log(`Extension source: ${extensionSource}`);
-      const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
-      console.log(`Generated S3 key: ${s3Key}`);
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: s3BucketName,
-          Key: s3Key,
-          Body: fileData,
-          ContentType:
-            mimeType === "application/octet-stream"
-              ? `image/${fileExtension.slice(1)}`
-              : mimeType,
-        })
-      );
-      console.log("S3 upload successful");
 
-      // Retrieve and compare the object from S3
-      console.log("Retrieving object from S3 for verification...");
-      const getObjectResult = await s3Client.send(
-        new GetObjectCommand({
-          Bucket: s3BucketName,
-          Key: s3Key,
-        })
-      );
+      let s3ObjectUrl = "";
+      let isDataEqual = false;
+      let s3DataHash = "";
 
-      const s3Data = await streamToBuffer(getObjectResult.Body);
-      const isDataEqual = Buffer.compare(fileData, s3Data) === 0;
-      console.log(`Data match between original and S3 object: ${isDataEqual}`);
+      if (storeData) {
+        // Only store in S3 if storeData is true
+        console.log("Uploading to S3...");
+        const s3Key = `${sha256Hash.slice(0, 16)}${fileExtension}`;
+        console.log(`Generated S3 key: ${s3Key}`);
+        await s3Client.send(
+          new PutObjectCommand({
+            Bucket: s3BucketName,
+            Key: s3Key,
+            Body: fileData,
+            ContentType:
+              mimeType === "application/octet-stream"
+                ? `image/${fileExtension.slice(1)}`
+                : mimeType,
+          })
+        );
+        console.log("S3 upload successful");
 
-      const s3DataHash = crypto
-        .createHash("sha256")
-        .update(s3Data)
-        .digest("hex");
-      console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
+        // Verify S3 upload
+        const getObjectResult = await s3Client.send(
+          new GetObjectCommand({
+            Bucket: s3BucketName,
+            Key: s3Key,
+          })
+        );
 
-      const s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+        const s3Data = await streamToBuffer(getObjectResult.Body);
+        isDataEqual = Buffer.compare(fileData, s3Data) === 0;
+        s3DataHash = crypto.createHash("sha256").update(s3Data).digest("hex");
+        s3ObjectUrl = `https://${s3BucketName}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+        console.log(
+          `Data match between original and S3 object: ${isDataEqual}`
+        );
+        console.log(`S3 object SHA-256 hash: ${s3DataHash}`);
+      }
 
-      console.log("Saving to DynamoDB...");
-      console.log("Received values:");
-      console.log("fileName:", fileName);
-      console.log("url:", url);
-      console.log("mimeType:", mimeType);
-      console.log("origin:", origin);
-      console.log("sha256Hash:", sha256Hash);
-      console.log("pHash:", pHash);
-      console.log("originalUrl:", url);
+      // Save to DynamoDB with conditional S3 information
       const dynamoDBItem = {
         ImageHash: { S: sha256Hash },
         PHash: { S: pHash },
-        s3ObjectUrl: { S: s3ObjectUrl },
-        originalUrl: { S: url || "" },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
+        originalUrl: { S: url || "" },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
@@ -528,16 +525,15 @@ export const handler = async (event) => {
         },
       };
 
+      // Only add S3-related fields if storeData is true
+      if (storeData) {
+        dynamoDBItem.s3ObjectUrl = { S: s3ObjectUrl };
+      }
+
       // Only add originWebsites if it's not empty
       if (origin && origin.length > 0) {
         dynamoDBItem.originWebsites = { SS: [origin] };
       }
-
-      console.log("DynamoDB Item:", JSON.stringify(dynamoDBItem, null, 2));
-
-      // Add this before saving to DynamoDB
-      console.log("Full metadata being saved:");
-      console.log(JSON.stringify(dynamoDBItem, null, 2));
 
       try {
         await dynamoDBClient.send(
@@ -549,14 +545,10 @@ export const handler = async (event) => {
         console.log("Successfully saved to DynamoDB");
       } catch (error) {
         console.error("Error saving to DynamoDB:", error);
-        console.error(
-          "DynamoDB Item that caused the error:",
-          JSON.stringify(dynamoDBItem, null, 2)
-        );
-        throw error; // Re-throw the error to be caught by the main try-catch block
+        throw error;
       }
 
-      // Modify the success response to include new information
+      // Return response
       return {
         statusCode: 200,
         headers: {
@@ -564,11 +556,11 @@ export const handler = async (event) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: "Image uploaded successfully",
+          message: "Image processed successfully",
           imageHash: sha256Hash,
           pHash: pHash,
-          s3ObjectUrl: s3ObjectUrl,
-          dataMatch: isDataEqual,
+          s3ObjectUrl: storeData ? s3ObjectUrl : null,
+          dataMatch: storeData ? isDataEqual : null,
           originalFileName: fileName,
           originWebsites: origin ? [origin] : [],
           requestCount: 1,
