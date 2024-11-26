@@ -1,13 +1,8 @@
-const {
-  DynamoDBClient,
-  UpdateItemCommand,
-  PutItemCommand,
-} = require("@aws-sdk/client-dynamodb");
-const { v4: uuidv4 } = require("uuid");
+import { DynamoDBClient, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const { imageHash, feedbackType, comment } = JSON.parse(event.body);
   if (feedbackType !== "up" && feedbackType !== "down") {
     throw new Error('Invalid feedbackType. Must be "up" or "down".');
