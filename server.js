@@ -439,24 +439,35 @@ export const handler = async (event) => {
         body: JSON.stringify({
           message: "File already exists",
           imageHash: sha256Hash,
-          pHash: updatedItem.PHash.S,
-          s3ObjectUrl: updatedItem.s3ObjectUrl.S,
-          originalFileName: updatedItem.originalFileName.S,
-          originWebsites: updatedItem.originWebsites.SS,
-          requestCount: parseInt(updatedItem.requestCount.N),
-          imageOriginUrl: updatedItem.originalUrl.S,
-          fileExtension: updatedItem.fileExtension.S,
-          extensionSource: updatedItem.extensionSource.S,
-          uploadDate: updatedItem.uploadDate.S,
-          fileSize: parseInt(updatedItem.fileSize.N),
-          allMetadata: JSON.parse(updatedItem.allMetadata.S),
-          sageMakerAnalysis: {
-            logit: parseFloat(updatedItem.sageMakerAnalysisCorvi23.M.logit.N),
-            probability: parseFloat(
-              updatedItem.sageMakerAnalysisCorvi23.M.probability.N
-            ),
-            isFake: updatedItem.sageMakerAnalysisCorvi23.M.isFake.BOOL,
-          },
+          pHash: updatedItem?.PHash?.S,
+          s3ObjectUrl: updatedItem?.s3ObjectUrl?.S,
+          originalFileName: updatedItem?.originalFileName?.S,
+          originWebsites: updatedItem?.originWebsites?.SS || [],
+          requestCount: updatedItem?.requestCount?.N
+            ? parseInt(updatedItem.requestCount.N)
+            : 1,
+          imageOriginUrl: updatedItem?.originalUrl?.S || "",
+          fileExtension: updatedItem?.fileExtension?.S,
+          extensionSource: updatedItem?.extensionSource?.S,
+          uploadDate: updatedItem?.uploadDate?.S,
+          fileSize: updatedItem?.fileSize?.N
+            ? parseInt(updatedItem.fileSize.N)
+            : 0,
+          allMetadata: updatedItem?.allMetadata?.S
+            ? JSON.parse(updatedItem.allMetadata.S)
+            : {},
+          sageMakerAnalysis: updatedItem?.sageMakerAnalysisCorvi23?.M
+            ? {
+                logit: parseFloat(
+                  updatedItem.sageMakerAnalysisCorvi23.M.logit?.N || "0"
+                ),
+                probability: parseFloat(
+                  updatedItem.sageMakerAnalysisCorvi23.M.probability?.N || "0"
+                ),
+                isFake:
+                  updatedItem.sageMakerAnalysisCorvi23.M.isFake?.BOOL || false,
+              }
+            : null,
         }),
       };
     } else {
