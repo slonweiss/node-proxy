@@ -144,12 +144,43 @@ Resources:
         - AttributeName: UserId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+    DeletionPolicy: Retain
 
   ServerlessRestApi:
     Type: AWS::Serverless::Api
     DeletionPolicy: Retain
     Properties:
       StageName: Prod
+
+  CloudFormationDeploymentPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DeleteTable
+              - dynamodb:DescribeTable
+              - dynamodb:UpdateTable
+              - dynamodb:TagResource
+              - dynamodb:UntagResource
+              - dynamodb:ListTagsOfResource
+            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ExistingCommentTableName}"
+
+  DeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref CloudFormationDeploymentPolicy
 
 Outputs:
   ApiUrl:
