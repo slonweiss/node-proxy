@@ -154,24 +154,6 @@ Resources:
       Roles:
         - CloudFormation-DeployLambdaRole
 
-  CommentTable:
-    Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      TableName: !Ref ExistingCommentTableName
-      AttributeDefinitions:
-        - AttributeName: ImageHash
-          AttributeType: S
-        - AttributeName: UserId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: ImageHash
-          KeyType: HASH
-        - AttributeName: UserId
-          KeyType: RANGE
-      BillingMode: PAY_PER_REQUEST
-
   ServerlessRestApi:
     Type: AWS::Serverless::Api
     DeletionPolicy: Retain
