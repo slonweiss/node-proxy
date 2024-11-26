@@ -67,18 +67,29 @@ const calculatePHash = async (buffer) => {
 
 // Add this function after the existing utility functions
 const getValidOrigin = (event) => {
-  const origin = event.headers.origin || event.headers.Origin || "";
-  const referer = event.headers.referer || event.headers.Referrer || "";
+  const xOrigin = event.headers["x-origin"] || event.headers["X-Origin"];
+  const origin = event.headers.origin || event.headers.Origin;
+  const referer = event.headers.referer || event.headers.Referrer;
 
-  // Check if the origin is in the allowed list
-  if (allowedOrigins.includes(origin)) {
+  // First check x-origin header
+  if (xOrigin) {
+    const xOriginDomain = new URL(xOrigin).origin;
+    if (allowedOrigins.includes(xOriginDomain)) {
+      return xOriginDomain;
+    }
+  }
+
+  // Then check regular origin
+  if (origin && allowedOrigins.includes(origin)) {
     return origin;
   }
 
-  // If origin is not in the allowed list, try to extract from referer
-  for (const allowedOrigin of allowedOrigins) {
-    if (referer.startsWith(allowedOrigin)) {
-      return allowedOrigin;
+  // Finally check referer
+  if (referer) {
+    for (const allowedOrigin of allowedOrigins) {
+      if (referer.startsWith(allowedOrigin)) {
+        return allowedOrigin;
+      }
     }
   }
 
@@ -261,7 +272,7 @@ export const handler = async (event) => {
     )
   );
 
-  const origin = event.headers["Origin"] || event.headers["origin"];
+  const origin = getValidOrigin(event);
   const allowOrigin = allowedOrigins.includes(origin)
     ? origin
     : allowedOrigins[0];
@@ -335,15 +346,14 @@ export const handler = async (event) => {
     );
 
     const { files, fields } = result;
-    // Convert storeData string to boolean, handling various string formats
+    // Get storeData from the parsed result directly
     const storeData =
-      fields?.storeData?.toLowerCase?.() === "true" ||
-      fields?.storeData === "1";
+      result.storeData?.toLowerCase?.() === "true" || result.storeData === "1";
     console.log("Parsed form data:", {
       storeData,
-      fieldsReceived: fields,
-      storeDataRawValue: fields?.storeData,
-      storeDataType: typeof fields?.storeData,
+      resultValue: result.storeData,
+      resultValueType: typeof result.storeData,
+      parsedBoolean: storeData,
     });
 
     // The URL is at the top level of the result, not in fields
