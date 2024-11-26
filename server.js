@@ -430,6 +430,10 @@ export const handler = async (event) => {
     );
 
     const { files, fields } = result;
+    // Get userId from the parsed result directly
+    const userId = result.userId || "anonymous";
+    console.log("User ID from request:", userId);
+
     // Get storeData from the parsed result directly
     const storeData =
       result.storeData?.toLowerCase?.() === "true" || result.storeData === "1";
