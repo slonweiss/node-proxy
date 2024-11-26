@@ -146,7 +146,6 @@ Resources:
         - AttributeName: UserId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
-    RoleName: !Sub "arn:aws:iam::${AWS::AccountId}:role/CloudFormation-DeployLambdaRole"
 
   ServerlessRestApi:
     Type: AWS::Serverless::Api
