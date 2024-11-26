@@ -253,6 +253,19 @@ const invokeSageMaker = async (imageBuffer) => {
   }
 };
 
+function processImageUrl(url) {
+  if (!url) return "";
+
+  // Check if it's a data URL
+  if (url.startsWith("data:")) {
+    // Return a flag instead of the full data URL
+    return "[data-url]";
+  }
+
+  // Return the regular URL as is
+  return url;
+}
+
 export const handler = async (event) => {
   console.log(
     "Received event:",
@@ -358,9 +371,10 @@ export const handler = async (event) => {
 
     // The URL is at the top level of the result, not in fields
     const url = result.url || "";
+    const processedUrl = processImageUrl(url);
 
     console.log("URL from result:", result.url);
-    console.log("Processed URL value:", url);
+    console.log("Processed URL value:", processedUrl);
 
     if (!files || files.length === 0) {
       throw new Error("No files found in the request");
@@ -373,13 +387,13 @@ export const handler = async (event) => {
     const fileName = file.filename;
     const mimeType = file.contentType;
     console.log("URL from fields:", fields?.url);
-    console.log("Processed URL value:", url);
+    console.log("Processed URL value:", processedUrl);
 
     console.log(`File received: ${fileName}`);
     console.log(`File size: ${fileData.length} bytes`);
     console.log(`Content-Type: ${mimeType}`);
     console.log(`First 16 bytes: ${fileData.slice(0, 16).toString("hex")}`);
-    console.log(`URL: ${url}`);
+    console.log(`URL: ${processedUrl}`);
 
     // Calculate both hashes
     const sha256Hash = crypto
@@ -487,7 +501,7 @@ export const handler = async (event) => {
       console.log(`Detected mimeType: ${mimeType}`);
       const { ext: fileExtension, extensionSource } = getFileExtensionFromData(
         fileName,
-        url,
+        processedUrl,
         mimeType,
         fileData
       );
@@ -543,7 +557,7 @@ export const handler = async (event) => {
         PHash: { S: pHash },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
-        originalUrl: { S: url || "" },
+        originalUrl: { S: processedUrl },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
@@ -607,7 +621,7 @@ export const handler = async (event) => {
           originalFileName: fileName,
           originWebsites: origin ? [origin] : [],
           requestCount: 1,
-          imageOriginUrl: url,
+          imageOriginUrl: processedUrl,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
           sageMakerAnalysis: sageMakerResult,
