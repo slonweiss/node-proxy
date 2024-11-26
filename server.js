@@ -268,15 +268,20 @@ function processImageUrl(url) {
 
 // Add JWT verification function
 const verifyToken = (authHeader) => {
+  console.log(
+    "Verifying JWT token from auth header:",
+    authHeader?.substring(0, 20) + "..."
+  );
   try {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.log("No valid Bearer token found in auth header");
       return null;
     }
     const token = authHeader.split(" ")[1];
-    // Note: This is a simple JWT decode without verification
-    // In production, you should verify the JWT signature
     const decoded = Buffer.from(token.split(".")[1], "base64").toString();
-    return JSON.parse(decoded);
+    const payload = JSON.parse(decoded);
+    console.log("Successfully decoded JWT payload:", payload);
+    return payload;
   } catch (error) {
     console.error("Error decoding JWT:", error);
     return null;
@@ -285,6 +290,13 @@ const verifyToken = (authHeader) => {
 
 // Add after other utility functions
 const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
+  console.log("Attempting to log image request:", {
+    imageHash,
+    userId,
+    origin,
+    sageMakerResult,
+  });
+
   const timestamp = new Date().toISOString();
   const requestId = crypto.randomUUID();
 
@@ -303,12 +315,26 @@ const logImageRequest = async (imageHash, userId, origin, sageMakerResult) => {
     },
   };
 
-  await dynamoDBClient.send(
-    new PutItemCommand({
-      TableName: process.env.REQUEST_LOG_TABLE,
-      Item: logItem,
-    })
-  );
+  console.log("Constructed DynamoDB item:", JSON.stringify(logItem, null, 2));
+  console.log("Using table name:", process.env.REQUEST_LOG_TABLE);
+
+  try {
+    await dynamoDBClient.send(
+      new PutItemCommand({
+        TableName: process.env.REQUEST_LOG_TABLE,
+        Item: logItem,
+      })
+    );
+    console.log("Successfully logged request to DynamoDB");
+  } catch (error) {
+    console.error("Error logging request to DynamoDB:", error);
+    console.error("Error details:", {
+      errorName: error.name,
+      errorMessage: error.message,
+      stackTrace: error.stack,
+    });
+    throw error; // Re-throw to handle it in the main try-catch block
+  }
 };
 
 export const handler = async (event) => {
@@ -648,6 +674,18 @@ export const handler = async (event) => {
       } catch (error) {
         console.error("Error saving to DynamoDB:", error);
         throw error;
+      }
+
+      // Add after SageMaker analysis
+      try {
+        await logImageRequest(sha256Hash, userId, origin, sageMakerResult);
+        console.log("Request logging completed successfully");
+      } catch (loggingError) {
+        console.error(
+          "Failed to log request, but continuing with response:",
+          loggingError
+        );
+        // Don't throw the error here to avoid failing the whole request
       }
 
       // Return response
