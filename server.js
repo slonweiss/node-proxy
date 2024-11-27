@@ -592,9 +592,17 @@ export const handler = async (event) => {
           fileSize: updatedItem?.fileSize?.N
             ? parseInt(updatedItem.fileSize.N)
             : 0,
-          allMetadata: updatedItem?.allMetadata?.S
-            ? JSON.parse(updatedItem.allMetadata.S)
-            : {},
+          metadata: {
+            sharp: updatedItem?.metadata?.M?.sharp?.S
+              ? JSON.parse(updatedItem.metadata.M.sharp.S)
+              : {},
+            exif: updatedItem?.metadata?.M?.exif?.S
+              ? JSON.parse(updatedItem.metadata.M.exif.S)
+              : {},
+            c2pa: updatedItem?.metadata?.M?.c2pa?.S
+              ? JSON.parse(updatedItem.metadata.M.c2pa.S)
+              : {},
+          },
           sageMakerAnalysis: updatedItem?.sageMakerAnalysisCorvi23?.M
             ? {
                 logit: parseFloat(
@@ -689,7 +697,13 @@ export const handler = async (event) => {
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
-        allMetadata: { S: JSON.stringify(allMetadata) },
+        metadata: {
+          M: {
+            sharp: { S: JSON.stringify(allMetadata.sharp || {}) },
+            exif: { S: JSON.stringify(allMetadata.exif || {}) },
+            c2pa: { S: JSON.stringify(allMetadata.c2pa || {}) },
+          },
+        },
         sageMakerAnalysisCorvi23: {
           M: {
             logit: { N: sageMakerResult.corvi.logit.toString() },
@@ -769,6 +783,13 @@ export const handler = async (event) => {
           imageOriginUrl: processedUrl,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
+          uploadDate: new Date().toISOString(),
+          fileSize: fileData.length,
+          metadata: {
+            sharp: allMetadata.sharp || {},
+            exif: allMetadata.exif || {},
+            c2pa: allMetadata.c2pa || {},
+          },
           sageMakerAnalysis: sageMakerResult.corvi,
           sageMakerAnalysisUFD: sageMakerResult.ufd,
         }),
