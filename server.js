@@ -388,6 +388,52 @@ const logImageRequest = async (imageHash, userId, origin) => {
   }
 };
 
+// Modify the metadata preparation for DynamoDB
+const prepareDynamoDBItem = (metadata) => {
+  // Deep clone the c2pa data to avoid modifying the original
+  const c2paData = metadata.c2pa
+    ? JSON.parse(JSON.stringify(metadata.c2pa))
+    : null;
+
+  if (c2paData) {
+    // Remove thumbnail buffers from active manifest
+    if (c2paData.activeManifest?.thumbnail?.data) {
+      delete c2paData.activeManifest.thumbnail.data;
+    }
+
+    // Remove thumbnail buffers and simplify manifest store
+    if (c2paData.manifestStore) {
+      Object.keys(c2paData.manifestStore).forEach((key) => {
+        const manifest = c2paData.manifestStore[key];
+        if (manifest.thumbnail) {
+          delete manifest.thumbnail;
+        }
+        // Optionally remove other large fields or simplify the structure
+        if (manifest.ingredients) {
+          manifest.ingredientCount = manifest.ingredients.length;
+          delete manifest.ingredients;
+        }
+      });
+    }
+  }
+
+  // Prepare sharp metadata by removing binary data
+  const sharpData = metadata.sharp ? { ...metadata.sharp } : null;
+  if (sharpData) {
+    delete sharpData.iptc;
+    delete sharpData.xmp;
+    delete sharpData.icc;
+  }
+
+  return {
+    metadata: {
+      sharp: sharpData,
+      exif: metadata.exif,
+      c2pa: c2paData,
+    },
+  };
+};
+
 export const handler = async (event) => {
   console.log(
     "Received event:",
@@ -703,18 +749,12 @@ export const handler = async (event) => {
         PHash: { S: pHash },
         uploadDate: { S: new Date().toISOString() },
         originalFileName: { S: fileName },
-        originalUrl: { S: processedUrl },
+        originalUrl: processedUrl ? { S: processedUrl } : { NULL: true },
         requestCount: { N: "1" },
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
-        metadata: {
-          M: {
-            sharp: { S: JSON.stringify(allMetadata.sharp || {}) },
-            exif: { S: JSON.stringify(allMetadata.exif || {}) },
-            c2pa: { S: JSON.stringify(allMetadata.c2pa || {}) },
-          },
-        },
+        ...prepareDynamoDBItem(allMetadata), // This will add the optimized metadata
         sageMakerAnalysisCorvi23: {
           M: {
             logit: { N: sageMakerResult.corvi.logit.toString() },
@@ -730,6 +770,21 @@ export const handler = async (event) => {
           },
         },
       };
+
+      // If you need to store the full C2PA data including thumbnails,
+      // consider storing it in S3 and keeping a reference in DynamoDB:
+      if (storeData && allMetadata.c2pa) {
+        const c2paKey = `c2pa/${sha256Hash}.json`;
+        await s3Client.send(
+          new PutObjectCommand({
+            Bucket: s3BucketName,
+            Key: c2paKey,
+            Body: JSON.stringify(allMetadata.c2pa),
+            ContentType: "application/json",
+          })
+        );
+        dynamoDBItem.c2paS3Key = { S: c2paKey };
+      }
 
       // Only add S3-related fields if storeData is true
       if (storeData) {
