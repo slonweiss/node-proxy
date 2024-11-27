@@ -216,39 +216,66 @@ async function extractAllMetadata(buffer) {
 const invokeSageMaker = async (imageBuffer) => {
   try {
     console.log(
-      "SageMaker Endpoint Name:",
-      process.env.SAGEMAKER_ENDPOINT_NAME
+      "SageMaker Endpoint Names:",
+      process.env.SAGEMAKER_ENDPOINT_NAME,
+      process.env.UNIVERSAL_FAKE_DETECT_ENDPOINT
     );
 
-    if (!process.env.SAGEMAKER_ENDPOINT_NAME) {
-      throw new Error(
-        "SAGEMAKER_ENDPOINT_NAME environment variable is not set"
-      );
+    if (
+      !process.env.SAGEMAKER_ENDPOINT_NAME ||
+      !process.env.UNIVERSAL_FAKE_DETECT_ENDPOINT
+    ) {
+      throw new Error("SageMaker endpoint environment variables are not set");
     }
 
     // Convert buffer to base64
     const base64Image = imageBuffer.toString("base64");
+    const payload = JSON.stringify({ image: base64Image });
 
-    const command = new InvokeEndpointCommand({
-      EndpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
-      ContentType: "application/json",
-      Body: JSON.stringify({ image: base64Image }),
-    });
+    // Invoke both endpoints in parallel
+    const [corviResponse, ufdResponse] = await Promise.all([
+      sageMakerClient.send(
+        new InvokeEndpointCommand({
+          EndpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
+          ContentType: "application/json",
+          Body: payload,
+        })
+      ),
+      sageMakerClient.send(
+        new InvokeEndpointCommand({
+          EndpointName: process.env.UNIVERSAL_FAKE_DETECT_ENDPOINT,
+          ContentType: "application/json",
+          Body: payload,
+        })
+      ),
+    ]);
 
-    const response = await sageMakerClient.send(command);
-    const result = JSON.parse(Buffer.from(response.Body).toString("utf8"));
+    const corviResult = JSON.parse(
+      Buffer.from(corviResponse.Body).toString("utf8")
+    );
+    const ufdResult = JSON.parse(
+      Buffer.from(ufdResponse.Body).toString("utf8")
+    );
 
     return {
-      logit: result.logit,
-      probability: result.probability,
-      isFake: result.is_fake,
+      corvi: {
+        logit: corviResult.logit,
+        probability: corviResult.probability,
+        isFake: corviResult.is_fake,
+      },
+      ufd: {
+        logit: ufdResult.logit,
+        probability: ufdResult.probability,
+        isFake: ufdResult.is_fake,
+      },
     };
   } catch (error) {
     console.error("SageMaker Configuration:", {
-      endpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
+      corviEndpoint: process.env.SAGEMAKER_ENDPOINT_NAME,
+      ufdEndpoint: process.env.UNIVERSAL_FAKE_DETECT_ENDPOINT,
       region: process.env.AWS_REGION,
     });
-    console.error("Error invoking SageMaker endpoint:", error);
+    console.error("Error invoking SageMaker endpoints:", error);
     throw error;
   }
 };
@@ -559,6 +586,18 @@ export const handler = async (event) => {
                   updatedItem.sageMakerAnalysisCorvi23.M.isFake?.BOOL || false,
               }
             : null,
+          sageMakerAnalysisUFD: updatedItem?.sageMakerAnalysisUFD?.M
+            ? {
+                logit: parseFloat(
+                  updatedItem.sageMakerAnalysisUFD.M.logit?.N || "0"
+                ),
+                probability: parseFloat(
+                  updatedItem.sageMakerAnalysisUFD.M.probability?.N || "0"
+                ),
+                isFake:
+                  updatedItem.sageMakerAnalysisUFD.M.isFake?.BOOL || false,
+              }
+            : null,
         }),
       };
     } else {
@@ -632,9 +671,16 @@ export const handler = async (event) => {
         allMetadata: { S: JSON.stringify(allMetadata) },
         sageMakerAnalysisCorvi23: {
           M: {
-            logit: { N: sageMakerResult.logit.toString() },
-            probability: { N: sageMakerResult.probability.toString() },
-            isFake: { BOOL: sageMakerResult.isFake },
+            logit: { N: sageMakerResult.corvi.logit.toString() },
+            probability: { N: sageMakerResult.corvi.probability.toString() },
+            isFake: { BOOL: sageMakerResult.corvi.isFake },
+          },
+        },
+        sageMakerAnalysisUFD: {
+          M: {
+            logit: { N: sageMakerResult.ufd.logit.toString() },
+            probability: { N: sageMakerResult.ufd.probability.toString() },
+            isFake: { BOOL: sageMakerResult.ufd.isFake },
           },
         },
       };
@@ -702,7 +748,8 @@ export const handler = async (event) => {
           imageOriginUrl: processedUrl,
           fileExtension: fileExtension,
           extensionSource: extensionSource,
-          sageMakerAnalysis: sageMakerResult,
+          sageMakerAnalysis: sageMakerResult.corvi,
+          sageMakerAnalysisUFD: sageMakerResult.ufd,
         }),
       };
     }

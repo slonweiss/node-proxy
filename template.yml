@@ -33,6 +33,11 @@ Parameters:
     Description: "The name of the existing DynamoDB Request Log Table"
     Default: RealEyesAIRequestLog
 
+  UniversalFakeDetectEndpointName:
+    Type: String
+    Description: "The name of the second SageMaker endpoint to invoke"
+    Default: "UniversalFakeDetect"
+
 Resources:
   NodeJsProxyFunction:
     Type: AWS::Serverless::Function
@@ -47,6 +52,7 @@ Resources:
           S3_BUCKET: !Ref ExistingImageBucketName
           DYNAMODB_TABLE: !Ref ExistingCacheTableName
           SAGEMAKER_ENDPOINT_NAME: !Ref SageMakerEndpointName
+          UNIVERSAL_FAKE_DETECT_ENDPOINT: !Ref UniversalFakeDetectEndpointName
           REQUEST_LOG_TABLE: !Ref ExistingRequestLogTableName
       Policies:
         - S3CrudPolicy:
@@ -60,7 +66,9 @@ Resources:
             - Effect: Allow
               Action:
                 - "sagemaker:InvokeEndpoint"
-              Resource: !Sub "arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${SageMakerEndpointName}"
+              Resource:
+                - !Sub "arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${SageMakerEndpointName}"
+                - !Sub "arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${UniversalFakeDetectEndpointName}"
       Events:
         ApiEvent:
           Type: Api
