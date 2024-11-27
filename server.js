@@ -390,48 +390,96 @@ const logImageRequest = async (imageHash, userId, origin) => {
 
 // Modify the metadata preparation for DynamoDB
 const prepareDynamoDBItem = (metadata) => {
-  // Deep clone the c2pa data to avoid modifying the original
-  const c2paData = metadata.c2pa
-    ? JSON.parse(JSON.stringify(metadata.c2pa))
-    : null;
+  try {
+    // Helper function to convert object to DynamoDB map
+    const toDynamoDBMap = (obj) => {
+      if (!obj) return { NULL: true };
 
-  if (c2paData) {
-    // Remove thumbnail buffers from active manifest
-    if (c2paData.activeManifest?.thumbnail?.data) {
-      delete c2paData.activeManifest.thumbnail.data;
-    }
-
-    // Remove thumbnail buffers and simplify manifest store
-    if (c2paData.manifestStore) {
-      Object.keys(c2paData.manifestStore).forEach((key) => {
-        const manifest = c2paData.manifestStore[key];
-        if (manifest.thumbnail) {
-          delete manifest.thumbnail;
-        }
-        // Optionally remove other large fields or simplify the structure
-        if (manifest.ingredients) {
-          manifest.ingredientCount = manifest.ingredients.length;
-          delete manifest.ingredients;
+      const map = {};
+      Object.entries(obj).forEach(([key, value]) => {
+        if (value === null || value === undefined) {
+          map[key] = { NULL: true };
+        } else if (typeof value === "string") {
+          map[key] = { S: value };
+        } else if (typeof value === "number") {
+          map[key] = { N: value.toString() };
+        } else if (typeof value === "boolean") {
+          map[key] = { BOOL: value };
+        } else if (Array.isArray(value)) {
+          map[key] = { L: value.map((item) => ({ S: item.toString() })) };
+        } else if (typeof value === "object") {
+          map[key] = { M: toDynamoDBMap(value) };
         }
       });
+      return map;
+    };
+
+    // Process C2PA data
+    let c2paData = null;
+    if (metadata.c2pa) {
+      const processedC2pa = {
+        activeManifest: {
+          claim_generator: metadata.c2pa.activeManifest?.claim_generator,
+          title: metadata.c2pa.activeManifest?.title,
+          format: metadata.c2pa.activeManifest?.format,
+          instance_id: metadata.c2pa.activeManifest?.instance_id,
+          label: metadata.c2pa.activeManifest?.label,
+          signature_info: {
+            alg: metadata.c2pa.activeManifest?.signature_info?.alg,
+            issuer: metadata.c2pa.activeManifest?.signature_info?.issuer,
+            time: metadata.c2pa.activeManifest?.signature_info?.time,
+          },
+        },
+        manifestCount: Object.keys(metadata.c2pa.manifestStore || {}).length,
+        validationStatus: metadata.c2pa.validationStatus || [],
+      };
+      c2paData = toDynamoDBMap(processedC2pa);
     }
-  }
 
-  // Prepare sharp metadata by removing binary data
-  const sharpData = metadata.sharp ? { ...metadata.sharp } : null;
-  if (sharpData) {
-    delete sharpData.iptc;
-    delete sharpData.xmp;
-    delete sharpData.icc;
-  }
+    // Process Sharp metadata
+    let sharpData = null;
+    if (metadata.sharp) {
+      const processedSharp = {
+        format: metadata.sharp.format,
+        size: metadata.sharp.size,
+        width: metadata.sharp.width,
+        height: metadata.sharp.height,
+        space: metadata.sharp.space,
+        channels: metadata.sharp.channels,
+        depth: metadata.sharp.depth,
+        density: metadata.sharp.density,
+        chromaSubsampling: metadata.sharp.chromaSubsampling,
+        isProgressive: metadata.sharp.isProgressive,
+        hasProfile: metadata.sharp.hasProfile,
+        hasAlpha: metadata.sharp.hasAlpha,
+      };
+      sharpData = toDynamoDBMap(processedSharp);
+    }
 
-  return {
-    metadata: {
-      sharp: sharpData,
-      exif: metadata.exif,
-      c2pa: c2paData,
-    },
-  };
+    return {
+      metadata: {
+        M: {
+          sharp: sharpData || { NULL: true },
+          exif: metadata.exif
+            ? { M: toDynamoDBMap(metadata.exif) }
+            : { NULL: true },
+          c2pa: c2paData || { NULL: true },
+        },
+      },
+    };
+  } catch (error) {
+    console.error("Error preparing DynamoDB item:", error);
+    // Return minimal valid structure if preparation fails
+    return {
+      metadata: {
+        M: {
+          sharp: { NULL: true },
+          exif: { NULL: true },
+          c2pa: { NULL: true },
+        },
+      },
+    };
+  }
 };
 
 export const handler = async (event) => {
