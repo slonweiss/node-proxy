@@ -16,7 +16,7 @@ import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
 import * as ExifReader from "exif-reader";
-import { createC2pa } from "c2pa";
+import { createC2pa } from "c2pa-node";
 import {
   SageMakerRuntimeClient,
   InvokeEndpointCommand,
@@ -193,32 +193,33 @@ async function extractAllMetadata(buffer) {
         message: exifError.message,
         stack: exifError.stack,
       });
+      metadata.exif = null;
     }
 
-    // C2PA logging
+    // C2PA logging with Node.js library
     try {
       console.log("Attempting to extract C2PA data...");
-      console.log("createC2pa type:", typeof createC2pa);
-      // Add better debugging for C2PA
-      try {
-        const c2paInstance = createC2pa();
-        console.log("C2PA instance created successfully");
-        console.log(
-          "C2PA instance methods:",
-          Object.keys(Object.getPrototypeOf(c2paInstance))
-        );
-      } catch (error) {
-        console.log("Error creating C2PA instance:", error);
-      }
-      const c2paData = await c2paInstance.read(buffer);
-      console.log("C2PA data:", c2paData);
-      if (c2paData) {
+      const c2pa = createC2pa();
+      console.log("C2PA instance created");
+
+      const c2paResult = await c2pa.read({
+        buffer,
+        mimeType: metadata.sharp.format
+          ? `image/${metadata.sharp.format}`
+          : "image/jpeg",
+      });
+
+      console.log("C2PA data extracted:", c2paResult);
+
+      if (c2paResult) {
         metadata.c2pa = {
-          activeManifest: c2paData.activeManifest,
-          manifestStore: c2paData.manifestStore,
-          ingredients: c2paData.ingredients,
-          thumbnail: c2paData.thumbnail,
+          activeManifest: c2paResult.active_manifest,
+          manifestStore: c2paResult.manifests,
+          validationStatus: c2paResult.validation_status,
         };
+      } else {
+        console.log("No C2PA data found in image");
+        metadata.c2pa = null;
       }
     } catch (c2paError) {
       console.error("C2PA extraction failed:", {
@@ -226,6 +227,7 @@ async function extractAllMetadata(buffer) {
         message: c2paError.message,
         stack: c2paError.stack,
       });
+      metadata.c2pa = null;
     }
   } catch (error) {
     console.error("General metadata extraction error:", {
@@ -235,7 +237,12 @@ async function extractAllMetadata(buffer) {
     });
   }
 
-  return metadata;
+  // Ensure we always return an object with all expected fields
+  return {
+    sharp: metadata.sharp || null,
+    exif: metadata.exif || null,
+    c2pa: metadata.c2pa || null,
+  };
 }
 
 const invokeSageMaker = async (imageBuffer) => {
