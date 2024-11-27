@@ -22,12 +22,6 @@ import {
   InvokeEndpointCommand,
 } from "@aws-sdk/client-sagemaker-runtime";
 
-// Add this near the top of your file after the imports
-console.log("ExifReader type:", typeof ExifReader);
-console.log("ExifReader methods:", Object.keys(ExifReader));
-console.log("C2PA type:", typeof createC2pa);
-console.log("C2PA methods:", Object.keys(createC2pa.prototype));
-
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
 const dynamoDBTableName = process.env.DYNAMODB_TABLE;
@@ -204,8 +198,18 @@ async function extractAllMetadata(buffer) {
     // C2PA logging
     try {
       console.log("Attempting to extract C2PA data...");
-      const c2paInstance = createC2pa();
-      console.log("C2PA instance created");
+      console.log("createC2pa type:", typeof createC2pa);
+      // Add better debugging for C2PA
+      try {
+        const c2paInstance = createC2pa();
+        console.log("C2PA instance created successfully");
+        console.log(
+          "C2PA instance methods:",
+          Object.keys(Object.getPrototypeOf(c2paInstance))
+        );
+      } catch (error) {
+        console.log("Error creating C2PA instance:", error);
+      }
       const c2paData = await c2paInstance.read(buffer);
       console.log("C2PA data:", c2paData);
       if (c2paData) {
