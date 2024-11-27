@@ -879,7 +879,27 @@ export const handler = async (event) => {
         );
       }
 
-      // Return response
+      // In the response, filter out binary data
+      const sanitizedMetadata = {
+        sharp: {
+          format: allMetadata.sharp?.format,
+          size: allMetadata.sharp?.size,
+          width: allMetadata.sharp?.width,
+          height: allMetadata.sharp?.height,
+          space: allMetadata.sharp?.space,
+          channels: allMetadata.sharp?.channels,
+          depth: allMetadata.sharp?.depth,
+          density: allMetadata.sharp?.density,
+          chromaSubsampling: allMetadata.sharp?.chromaSubsampling,
+          isProgressive: allMetadata.sharp?.isProgressive,
+          hasProfile: allMetadata.sharp?.hasProfile,
+          hasAlpha: allMetadata.sharp?.hasAlpha,
+        },
+        exif: allMetadata.exif || {},
+        c2pa: allMetadata.c2pa || {},
+      };
+
+      // Update the response body to use sanitizedMetadata
       return {
         statusCode: 200,
         headers: {
@@ -900,11 +920,7 @@ export const handler = async (event) => {
           extensionSource: extensionSource,
           uploadDate: new Date().toISOString(),
           fileSize: fileData.length,
-          metadata: {
-            sharp: allMetadata.sharp || {},
-            exif: allMetadata.exif || {},
-            c2pa: allMetadata.c2pa || {},
-          },
+          metadata: sanitizedMetadata, // Use the sanitized metadata here
           sageMakerAnalysis: sageMakerResult.corvi,
           sageMakerAnalysisUFD: sageMakerResult.ufd,
         }),
