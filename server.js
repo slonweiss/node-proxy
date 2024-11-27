@@ -493,6 +493,79 @@ const prepareDynamoDBItem = (metadata) => {
   }
 };
 
+// Add this utility function after other utility functions
+const getAttributeSize = (attribute) => {
+  if (!attribute) return 0;
+  return Buffer.from(JSON.stringify(attribute)).length;
+};
+
+const logAttributeSizes = (item) => {
+  console.log("DynamoDB Item Size Analysis:");
+  Object.entries(item).forEach(([key, value]) => {
+    const size = getAttributeSize(value);
+    console.log(`- ${key}: ${size} bytes`);
+
+    // If it's metadata, drill down further
+    if (key === "metadata" && value.M) {
+      console.log("  Metadata breakdown:");
+      Object.entries(value.M).forEach(([metaKey, metaValue]) => {
+        console.log(`  - ${metaKey}: ${getAttributeSize(metaValue)} bytes`);
+      });
+    }
+  });
+};
+
+// Add this function to simplify C2PA data
+const simplifyC2paData = (c2paData) => {
+  if (!c2paData) return null;
+
+  // Simplify active manifest
+  const simplifiedActiveManifest = c2paData.active_manifest
+    ? {
+        claim_generator: c2paData.active_manifest.claim_generator,
+        title: c2paData.active_manifest.title,
+        format: c2paData.active_manifest.format,
+        instance_id: c2paData.active_manifest.instance_id,
+        signature_info: {
+          alg: c2paData.active_manifest.signature_info?.alg,
+          issuer: c2paData.active_manifest.signature_info?.issuer,
+          time: c2paData.active_manifest.signature_info?.time,
+        },
+        label: c2paData.active_manifest.label,
+        // Include count of ingredients and assertions instead of full arrays
+        ingredientsCount: c2paData.active_manifest.ingredients?.length || 0,
+        assertionsCount: c2paData.active_manifest.assertions?.length || 0,
+      }
+    : null;
+
+  // Simplify manifests - just include basic info and counts
+  const simplifiedManifests = {};
+  if (c2paData.manifests) {
+    Object.entries(c2paData.manifests).forEach(([key, manifest]) => {
+      simplifiedManifests[key] = {
+        claim_generator: manifest.claim_generator,
+        title: manifest.title,
+        format: manifest.format,
+        instance_id: manifest.instance_id,
+        ingredientsCount: manifest.ingredients?.length || 0,
+        assertionsCount: manifest.assertions?.length || 0,
+        signature_info: {
+          alg: manifest.signature_info?.alg,
+          issuer: manifest.signature_info?.issuer,
+          time: manifest.signature_info?.time,
+        },
+      };
+    });
+  }
+
+  return {
+    active_manifest: simplifiedActiveManifest,
+    manifests: simplifiedManifests,
+    validation_status: c2paData.validation_status || [],
+    manifestCount: Object.keys(c2paData.manifests || {}).length,
+  };
+};
+
 export const handler = async (event) => {
   console.log(
     "Received event:",
@@ -856,6 +929,16 @@ export const handler = async (event) => {
       });
 
       try {
+        // Log sizes before attempting to save
+        logAttributeSizes(dynamoDBItem);
+
+        // DynamoDB has a 400KB item size limit
+        const totalSize = getAttributeSize(dynamoDBItem);
+        console.log(`Total DynamoDB item size: ${totalSize} bytes`);
+        if (totalSize > 400000) {
+          console.warn("WARNING: Item size exceeds DynamoDB's 400KB limit");
+        }
+
         await dynamoDBClient.send(
           new PutItemCommand({
             TableName: dynamoDBTableName,
@@ -865,6 +948,11 @@ export const handler = async (event) => {
         console.log("Successfully saved to DynamoDB");
       } catch (error) {
         console.error("Error saving to DynamoDB:", error);
+        console.error("Error details:", {
+          name: error.name,
+          message: error.message,
+          code: error.$metadata?.httpStatusCode,
+        });
         throw error;
       }
 
@@ -896,7 +984,7 @@ export const handler = async (event) => {
           hasAlpha: allMetadata.sharp?.hasAlpha,
         },
         exif: allMetadata.exif || {},
-        c2pa: allMetadata.c2pa || {},
+        c2pa: simplifyC2paData(allMetadata.c2pa),
       };
 
       // Update the response body to use sanitizedMetadata
