@@ -391,90 +391,101 @@ const logImageRequest = async (imageHash, userId, origin) => {
 // Modify the metadata preparation for DynamoDB
 const prepareDynamoDBItem = (metadata) => {
   try {
-    // Helper function to convert object to DynamoDB map
-    const toDynamoDBMap = (obj) => {
-      if (!obj) return { NULL: true };
-
-      const map = {};
-      Object.entries(obj).forEach(([key, value]) => {
-        if (value === null || value === undefined) {
-          map[key] = { NULL: true };
-        } else if (typeof value === "string") {
-          map[key] = { S: value };
-        } else if (typeof value === "number") {
-          map[key] = { N: value.toString() };
-        } else if (typeof value === "boolean") {
-          map[key] = { BOOL: value };
-        } else if (Array.isArray(value)) {
-          map[key] = { L: value.map((item) => ({ S: item.toString() })) };
-        } else if (typeof value === "object") {
-          map[key] = { M: toDynamoDBMap(value) };
+    // Helper function to safely convert values to DynamoDB format
+    const toDynamoDBValue = (value) => {
+      if (value === null || value === undefined) {
+        return { NULL: true };
+      }
+      if (typeof value === "string") {
+        return { S: value };
+      }
+      if (typeof value === "number") {
+        return { N: value.toString() };
+      }
+      if (typeof value === "boolean") {
+        return { BOOL: value };
+      }
+      if (Array.isArray(value)) {
+        // Only process non-empty arrays of simple values
+        if (value.length === 0) {
+          return { L: [] };
         }
-      });
-      return map;
+        return { L: value.map((item) => toDynamoDBValue(item.toString())) };
+      }
+      // For objects, convert to string to avoid nested structure issues
+      return { S: JSON.stringify(value) };
     };
 
-    // Process C2PA data
-    let c2paData = null;
-    if (metadata.c2pa) {
-      const processedC2pa = {
-        activeManifest: {
-          claim_generator: metadata.c2pa.activeManifest?.claim_generator,
+    // Process Sharp metadata (only simple values)
+    const sharpAttributes = {
+      format: metadata.sharp?.format,
+      size: metadata.sharp?.size,
+      width: metadata.sharp?.width,
+      height: metadata.sharp?.height,
+      space: metadata.sharp?.space,
+      channels: metadata.sharp?.channels,
+      depth: metadata.sharp?.depth,
+      density: metadata.sharp?.density,
+      chromaSubsampling: metadata.sharp?.chromaSubsampling,
+      isProgressive: metadata.sharp?.isProgressive,
+      hasProfile: metadata.sharp?.hasProfile,
+      hasAlpha: metadata.sharp?.hasAlpha,
+    };
+
+    // Process C2PA metadata (simplified)
+    const c2paAttributes = metadata.c2pa
+      ? {
+          generator: metadata.c2pa.activeManifest?.claim_generator,
           title: metadata.c2pa.activeManifest?.title,
           format: metadata.c2pa.activeManifest?.format,
-          instance_id: metadata.c2pa.activeManifest?.instance_id,
+          instanceId: metadata.c2pa.activeManifest?.instance_id,
           label: metadata.c2pa.activeManifest?.label,
-          signature_info: {
+          manifestCount: Object.keys(metadata.c2pa.manifestStore || {}).length,
+          signatureInfo: JSON.stringify({
             alg: metadata.c2pa.activeManifest?.signature_info?.alg,
             issuer: metadata.c2pa.activeManifest?.signature_info?.issuer,
             time: metadata.c2pa.activeManifest?.signature_info?.time,
-          },
-        },
-        manifestCount: Object.keys(metadata.c2pa.manifestStore || {}).length,
-        validationStatus: metadata.c2pa.validationStatus || [],
-      };
-      c2paData = toDynamoDBMap(processedC2pa);
-    }
+          }),
+        }
+      : null;
 
-    // Process Sharp metadata
-    let sharpData = null;
-    if (metadata.sharp) {
-      const processedSharp = {
-        format: metadata.sharp.format,
-        size: metadata.sharp.size,
-        width: metadata.sharp.width,
-        height: metadata.sharp.height,
-        space: metadata.sharp.space,
-        channels: metadata.sharp.channels,
-        depth: metadata.sharp.depth,
-        density: metadata.sharp.density,
-        chromaSubsampling: metadata.sharp.chromaSubsampling,
-        isProgressive: metadata.sharp.isProgressive,
-        hasProfile: metadata.sharp.hasProfile,
-        hasAlpha: metadata.sharp.hasAlpha,
-      };
-      sharpData = toDynamoDBMap(processedSharp);
-    }
-
+    // Convert to DynamoDB format
     return {
       metadata: {
         M: {
-          sharp: sharpData || { NULL: true },
-          exif: metadata.exif
-            ? { M: toDynamoDBMap(metadata.exif) }
+          sharp: {
+            M: Object.entries(sharpAttributes)
+              .filter(([_, value]) => value !== undefined)
+              .reduce(
+                (acc, [key, value]) => ({
+                  ...acc,
+                  [key]: toDynamoDBValue(value),
+                }),
+                {}
+              ),
+          },
+          c2pa: c2paAttributes
+            ? {
+                M: Object.entries(c2paAttributes)
+                  .filter(([_, value]) => value !== undefined)
+                  .reduce(
+                    (acc, [key, value]) => ({
+                      ...acc,
+                      [key]: toDynamoDBValue(value),
+                    }),
+                    {}
+                  ),
+              }
             : { NULL: true },
-          c2pa: c2paData || { NULL: true },
         },
       },
     };
   } catch (error) {
     console.error("Error preparing DynamoDB item:", error);
-    // Return minimal valid structure if preparation fails
     return {
       metadata: {
         M: {
           sharp: { NULL: true },
-          exif: { NULL: true },
           c2pa: { NULL: true },
         },
       },
@@ -802,7 +813,6 @@ export const handler = async (event) => {
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
-        ...prepareDynamoDBItem(allMetadata), // This will add the optimized metadata
         sageMakerAnalysisCorvi23: {
           M: {
             logit: { N: sageMakerResult.corvi.logit.toString() },
@@ -819,19 +829,10 @@ export const handler = async (event) => {
         },
       };
 
-      // If you need to store the full C2PA data including thumbnails,
-      // consider storing it in S3 and keeping a reference in DynamoDB:
-      if (storeData && allMetadata.c2pa) {
-        const c2paKey = `c2pa/${sha256Hash}.json`;
-        await s3Client.send(
-          new PutObjectCommand({
-            Bucket: s3BucketName,
-            Key: c2paKey,
-            Body: JSON.stringify(allMetadata.c2pa),
-            ContentType: "application/json",
-          })
-        );
-        dynamoDBItem.c2paS3Key = { S: c2paKey };
+      // Add metadata if available
+      const preparedMetadata = prepareDynamoDBItem(allMetadata);
+      if (preparedMetadata.metadata) {
+        dynamoDBItem.metadata = preparedMetadata.metadata;
       }
 
       // Only add S3-related fields if storeData is true
