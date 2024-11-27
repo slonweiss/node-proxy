@@ -758,6 +758,46 @@ export const handler = async (event) => {
 
       const updatedItem = updateResult.Attributes;
 
+      // Format metadata similar to new images
+      const formattedMetadata = {
+        sharp: {
+          format: updatedItem?.metadata?.M?.sharp?.M?.format?.S,
+          size: parseInt(updatedItem?.metadata?.M?.sharp?.M?.size?.N),
+          width: parseInt(updatedItem?.metadata?.M?.sharp?.M?.width?.N),
+          height: parseInt(updatedItem?.metadata?.M?.sharp?.M?.height?.N),
+          space: updatedItem?.metadata?.M?.sharp?.M?.space?.S,
+          channels: parseInt(updatedItem?.metadata?.M?.sharp?.M?.channels?.N),
+          depth: updatedItem?.metadata?.M?.sharp?.M?.depth?.S,
+          density: parseInt(updatedItem?.metadata?.M?.sharp?.M?.density?.N),
+          chromaSubsampling:
+            updatedItem?.metadata?.M?.sharp?.M?.chromaSubsampling?.S,
+          isProgressive:
+            updatedItem?.metadata?.M?.sharp?.M?.isProgressive?.BOOL,
+          hasProfile: updatedItem?.metadata?.M?.sharp?.M?.hasProfile?.BOOL,
+          hasAlpha: updatedItem?.metadata?.M?.sharp?.M?.hasAlpha?.BOOL,
+        },
+        exif: updatedItem?.metadata?.M?.exif?.M || {},
+        c2pa: updatedItem?.metadata?.M?.c2pa?.M || {},
+      };
+
+      // Format SageMaker analysis results
+      const formattedSageMakerAnalysis = {
+        corvi: {
+          logit: parseFloat(updatedItem?.sageMakerAnalysisCorvi23?.M?.logit?.N),
+          probability: parseFloat(
+            updatedItem?.sageMakerAnalysisCorvi23?.M?.probability?.N
+          ),
+          isFake: updatedItem?.sageMakerAnalysisCorvi23?.M?.isFake?.BOOL,
+        },
+        ufd: {
+          logit: parseFloat(updatedItem?.sageMakerAnalysisUFD?.M?.logit?.N),
+          probability: parseFloat(
+            updatedItem?.sageMakerAnalysisUFD?.M?.probability?.N
+          ),
+          isFake: updatedItem?.sageMakerAnalysisUFD?.M?.isFake?.BOOL,
+        },
+      };
+
       return {
         statusCode: 200,
         headers: {
@@ -781,35 +821,9 @@ export const handler = async (event) => {
           fileSize: updatedItem?.fileSize?.N
             ? parseInt(updatedItem.fileSize.N)
             : 0,
-          metadata: {
-            sharp: updatedItem?.metadata?.M?.sharp?.M || {},
-            exif: updatedItem?.metadata?.M?.exif?.M || {},
-            c2pa: updatedItem?.metadata?.M?.c2pa?.M || {},
-          },
-          sageMakerAnalysis: updatedItem?.sageMakerAnalysisCorvi23?.M
-            ? {
-                logit: parseFloat(
-                  updatedItem.sageMakerAnalysisCorvi23.M.logit?.N || "0"
-                ),
-                probability: parseFloat(
-                  updatedItem.sageMakerAnalysisCorvi23.M.probability?.N || "0"
-                ),
-                isFake:
-                  updatedItem.sageMakerAnalysisCorvi23.M.isFake?.BOOL || false,
-              }
-            : null,
-          sageMakerAnalysisUFD: updatedItem?.sageMakerAnalysisUFD?.M
-            ? {
-                logit: parseFloat(
-                  updatedItem.sageMakerAnalysisUFD.M.logit?.N || "0"
-                ),
-                probability: parseFloat(
-                  updatedItem.sageMakerAnalysisUFD.M.probability?.N || "0"
-                ),
-                isFake:
-                  updatedItem.sageMakerAnalysisUFD.M.isFake?.BOOL || false,
-              }
-            : null,
+          metadata: formattedMetadata,
+          sageMakerAnalysis: formattedSageMakerAnalysis.corvi,
+          sageMakerAnalysisUFD: formattedSageMakerAnalysis.ufd,
         }),
       };
     } else {
