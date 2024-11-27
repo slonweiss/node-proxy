@@ -15,12 +15,18 @@ import { parse } from "lambda-multipart-parser";
 import path from "path";
 import imghash from "imghash";
 import sharp from "sharp";
-import ExifReader from "exif-reader";
-import * as c2pa from "c2pa";
+import * as ExifReader from "exif-reader";
+import { C2PA } from "c2pa";
 import {
   SageMakerRuntimeClient,
   InvokeEndpointCommand,
 } from "@aws-sdk/client-sagemaker-runtime";
+
+// Add this near the top of your file after the imports
+console.log("ExifReader type:", typeof ExifReader);
+console.log("ExifReader methods:", Object.keys(ExifReader));
+console.log("C2PA type:", typeof C2PA);
+console.log("C2PA methods:", Object.keys(C2PA.prototype));
 
 // Use environment variables
 const s3BucketName = process.env.S3_BUCKET;
@@ -173,41 +179,57 @@ async function extractAllMetadata(buffer) {
   let metadata = {};
 
   try {
-    // Extract metadata using sharp
+    console.log("Starting metadata extraction...");
     const sharpMetadata = await sharp(buffer).metadata();
+    console.log("Sharp metadata:", sharpMetadata);
     metadata.sharp = sharpMetadata;
 
-    // Extract EXIF data
+    // EXIF logging
     try {
-      const exif = ExifReader.load(buffer);
-      metadata.exif = exif;
+      console.log("Attempting to extract EXIF data...");
+      console.log("EXIF buffer exists:", !!sharpMetadata.exif);
+      if (sharpMetadata.exif) {
+        console.log("EXIF buffer length:", sharpMetadata.exif.length);
+        const exif = ExifReader.default(sharpMetadata.exif);
+        console.log("EXIF data extracted:", exif);
+        metadata.exif = exif;
+      }
     } catch (exifError) {
-      console.log(
-        "No EXIF data found or error reading EXIF data:",
-        exifError.message
-      );
+      console.error("EXIF extraction failed:", {
+        error: exifError,
+        message: exifError.message,
+        stack: exifError.stack,
+      });
     }
 
-    // Extract C2PA data
+    // C2PA logging
     try {
-      const c2paData = await c2pa.read(buffer);
+      console.log("Attempting to extract C2PA data...");
+      const c2paInstance = new C2PA();
+      console.log("C2PA instance created");
+      const c2paData = await c2paInstance.read(buffer);
+      console.log("C2PA data:", c2paData);
       if (c2paData) {
         metadata.c2pa = {
           activeManifest: c2paData.activeManifest,
           manifestStore: c2paData.manifestStore,
           ingredients: c2paData.ingredients,
           thumbnail: c2paData.thumbnail,
-          // Add any other relevant C2PA data you want to store
         };
       }
     } catch (c2paError) {
-      console.log(
-        "No C2PA data found or error reading C2PA data:",
-        c2paError.message
-      );
+      console.error("C2PA extraction failed:", {
+        error: c2paError,
+        message: c2paError.message,
+        stack: c2paError.stack,
+      });
     }
   } catch (error) {
-    console.error("Error extracting metadata:", error);
+    console.error("General metadata extraction error:", {
+      error,
+      message: error.message,
+      stack: error.stack,
+    });
   }
 
   return metadata;
