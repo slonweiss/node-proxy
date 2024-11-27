@@ -782,15 +782,9 @@ export const handler = async (event) => {
             ? parseInt(updatedItem.fileSize.N)
             : 0,
           metadata: {
-            sharp: updatedItem?.metadata?.M?.sharp?.S
-              ? JSON.parse(updatedItem.metadata.M.sharp.S)
-              : {},
-            exif: updatedItem?.metadata?.M?.exif?.S
-              ? JSON.parse(updatedItem.metadata.M.exif.S)
-              : {},
-            c2pa: updatedItem?.metadata?.M?.c2pa?.S
-              ? JSON.parse(updatedItem.metadata.M.c2pa.S)
-              : {},
+            sharp: updatedItem?.metadata?.M?.sharp?.M || {},
+            exif: updatedItem?.metadata?.M?.exif?.M || {},
+            c2pa: updatedItem?.metadata?.M?.c2pa?.M || {},
           },
           sageMakerAnalysis: updatedItem?.sageMakerAnalysisCorvi23?.M
             ? {
@@ -999,7 +993,6 @@ export const handler = async (event) => {
           imageHash: sha256Hash,
           pHash: pHash,
           s3ObjectUrl: storeData ? s3ObjectUrl : null,
-          dataMatch: storeData ? isDataEqual : null,
           originalFileName: fileName,
           originWebsites: origin ? [origin] : [],
           requestCount: 1,
