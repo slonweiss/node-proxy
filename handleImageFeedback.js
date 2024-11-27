@@ -48,14 +48,85 @@ export const handler = async (event) => {
   );
 
   if (existingFeedback.Item) {
-    return {
-      statusCode: 409, // Conflict
-      body: JSON.stringify({
-        error: "User has already submitted feedback for this image",
-      }),
-    };
+    const existingType = existingFeedback.Item.Type.S;
+
+    // If feedback type is the same, return early
+    if (existingType === feedbackType) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          message: "Feedback already received",
+          imageHash: imageHash,
+          userId: userId,
+          feedbackType: feedbackType,
+        }),
+      };
+    }
+
+    // Update feedback if it's different
+    try {
+      // Update the feedback entry
+      const updateFeedbackParams = {
+        TableName: process.env.COMMENT_TABLE,
+        Key: {
+          ImageHash: { S: imageHash },
+          UserId: { S: userId },
+        },
+        UpdateExpression:
+          "SET #type = :newType, #comment = :newComment, #timestamp = :newTimestamp",
+        ExpressionAttributeNames: {
+          "#type": "Type",
+          "#comment": "Comment",
+          "#timestamp": "Timestamp",
+        },
+        ExpressionAttributeValues: {
+          ":newType": { S: feedbackType },
+          ":newComment": { S: comment || "" },
+          ":newTimestamp": { S: new Date().toISOString() },
+        },
+      };
+
+      await dynamoDBClient.send(new UpdateItemCommand(updateFeedbackParams));
+
+      // Update the counts in the cache table
+      const updateCountParams = {
+        TableName: process.env.DYNAMODB_TABLE,
+        Key: {
+          ImageHash: { S: imageHash },
+        },
+        UpdateExpression: "ADD #newFeedbackType :inc, #oldFeedbackType :dec",
+        ExpressionAttributeNames: {
+          "#newFeedbackType": feedbackType === "up" ? "ThumbsUp" : "ThumbsDown",
+          "#oldFeedbackType": existingType === "up" ? "ThumbsUp" : "ThumbsDown",
+        },
+        ExpressionAttributeValues: {
+          ":inc": { N: "1" },
+          ":dec": { N: "-1" },
+        },
+      };
+
+      await dynamoDBClient.send(new UpdateItemCommand(updateCountParams));
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          message: "Feedback updated successfully",
+          imageHash: imageHash,
+          userId: userId,
+          feedbackType: feedbackType,
+          previousFeedback: existingType,
+        }),
+      };
+    } catch (error) {
+      console.error("Error updating feedback:", error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Failed to update feedback" }),
+      };
+    }
   }
 
+  // If no existing feedback, continue with the original code for new feedback
   const putParams = {
     TableName: process.env.COMMENT_TABLE,
     Item: {
@@ -65,9 +136,6 @@ export const handler = async (event) => {
       Comment: { S: comment || "" },
       Timestamp: { S: new Date().toISOString() },
     },
-    // Add a condition to ensure the item doesn't exist (extra safety check)
-    ConditionExpression:
-      "attribute_not_exists(ImageHash) AND attribute_not_exists(UserId)",
   };
 
   try {
