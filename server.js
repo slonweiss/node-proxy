@@ -257,15 +257,16 @@ const invokeSageMaker = async (imageBuffer) => {
       !process.env.SAGEMAKER_ENDPOINT_NAME ||
       !process.env.UNIVERSAL_FAKE_DETECT_ENDPOINT
     ) {
-      throw new Error("SageMaker endpoint environment variables are not set");
+      console.warn("SageMaker endpoint environment variables are not set");
+      return null;
     }
 
     // Convert buffer to base64
     const base64Image = imageBuffer.toString("base64");
     const payload = JSON.stringify({ image: base64Image });
 
-    // Invoke both endpoints in parallel
-    const [corviResponse, ufdResponse] = await Promise.all([
+    // Invoke both endpoints in parallel with error handling for each
+    const [corviResponse, ufdResponse] = await Promise.allSettled([
       sageMakerClient.send(
         new InvokeEndpointCommand({
           EndpointName: process.env.SAGEMAKER_ENDPOINT_NAME,
@@ -282,24 +283,52 @@ const invokeSageMaker = async (imageBuffer) => {
       ),
     ]);
 
-    const corviResult = JSON.parse(
-      Buffer.from(corviResponse.Body).toString("utf8")
-    );
-    const ufdResult = JSON.parse(
-      Buffer.from(ufdResponse.Body).toString("utf8")
-    );
+    // Initialize results
+    let corviResult = null;
+    let ufdResult = null;
 
+    // Process Corvi response if successful
+    if (corviResponse.status === "fulfilled") {
+      try {
+        corviResult = JSON.parse(
+          Buffer.from(corviResponse.value.Body).toString("utf8")
+        );
+      } catch (error) {
+        console.error("Error parsing Corvi response:", error);
+      }
+    } else {
+      console.error("Corvi endpoint error:", corviResponse.reason);
+    }
+
+    // Process UFD response if successful
+    if (ufdResponse.status === "fulfilled") {
+      try {
+        ufdResult = JSON.parse(
+          Buffer.from(ufdResponse.value.Body).toString("utf8")
+        );
+      } catch (error) {
+        console.error("Error parsing UFD response:", error);
+      }
+    } else {
+      console.error("UFD endpoint error:", ufdResponse.reason);
+    }
+
+    // Return results, with null values for failed endpoints
     return {
-      corvi: {
-        logit: corviResult.logit,
-        probability: corviResult.probability,
-        isFake: corviResult.is_fake,
-      },
-      ufd: {
-        logit: ufdResult.logit,
-        probability: ufdResult.probability,
-        isFake: ufdResult.is_fake,
-      },
+      corvi: corviResult
+        ? {
+            logit: corviResult.logit,
+            probability: corviResult.probability,
+            isFake: corviResult.is_fake,
+          }
+        : null,
+      ufd: ufdResult
+        ? {
+            logit: ufdResult.logit,
+            probability: ufdResult.probability,
+            isFake: ufdResult.is_fake,
+          }
+        : null,
     };
   } catch (error) {
     console.error("SageMaker Configuration:", {
@@ -308,7 +337,7 @@ const invokeSageMaker = async (imageBuffer) => {
       region: process.env.AWS_REGION,
     });
     console.error("Error invoking SageMaker endpoints:", error);
-    throw error;
+    return null;
   }
 };
 
@@ -894,21 +923,28 @@ export const handler = async (event) => {
         fileExtension: { S: fileExtension },
         extensionSource: { S: extensionSource },
         fileSize: { N: fileData.length.toString() },
-        sageMakerAnalysisCorvi23: {
+      };
+
+      // Only add SageMaker results if they exist
+      if (sageMakerResult?.corvi) {
+        dynamoDBItem.sageMakerAnalysisCorvi23 = {
           M: {
             logit: { N: sageMakerResult.corvi.logit.toString() },
             probability: { N: sageMakerResult.corvi.probability.toString() },
             isFake: { BOOL: sageMakerResult.corvi.isFake },
           },
-        },
-        sageMakerAnalysisUFD: {
+        };
+      }
+
+      if (sageMakerResult?.ufd) {
+        dynamoDBItem.sageMakerAnalysisUFD = {
           M: {
             logit: { N: sageMakerResult.ufd.logit.toString() },
             probability: { N: sageMakerResult.ufd.probability.toString() },
             isFake: { BOOL: sageMakerResult.ufd.isFake },
           },
-        },
-      };
+        };
+      }
 
       // Add metadata if available
       const preparedMetadata = prepareDynamoDBItem(allMetadata);
@@ -1015,9 +1051,13 @@ export const handler = async (event) => {
           extensionSource: extensionSource,
           uploadDate: new Date().toISOString(),
           fileSize: fileData.length,
-          metadata: sanitizedMetadata, // Use the sanitized metadata here
-          sageMakerAnalysis: sageMakerResult.corvi,
-          sageMakerAnalysisUFD: sageMakerResult.ufd,
+          metadata: sanitizedMetadata,
+          ...(sageMakerResult?.corvi && {
+            sageMakerAnalysis: sageMakerResult.corvi,
+          }),
+          ...(sageMakerResult?.ufd && {
+            sageMakerAnalysisUFD: sageMakerResult.ufd,
+          }),
         }),
       };
     }
