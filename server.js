@@ -595,6 +595,31 @@ const simplifyC2paData = (c2paData) => {
   };
 };
 
+const createErrorResponse = (statusCode, message, details = null) => {
+  const response = {
+    error: {
+      message,
+      timestamp: new Date().toISOString(),
+      requestId: crypto.randomUUID(),
+    },
+  };
+
+  if (details) {
+    response.error.details = details;
+  }
+
+  return {
+    statusCode,
+    headers: {
+      "Access-Control-Allow-Origin": allowedOrigins[0],
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(response),
+  };
+};
+
 export const handler = async (event) => {
   console.log(
     "Received event:",
@@ -1065,16 +1090,29 @@ export const handler = async (event) => {
     console.error("Error processing image:", error);
     console.error("Error stack:", error.stack);
     console.error("Metadata object:", allMetadata || "No metadata available");
-    return {
-      statusCode: 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        error: "Internal server error",
-        details: error.message,
-      }),
-    };
+
+    let statusCode = 500;
+    let errorMessage = "Internal server error";
+    let errorDetails = null;
+
+    // Categorize different types of errors
+    if (error.name === "ValidationError") {
+      statusCode = 400;
+      errorMessage = "Invalid request data";
+      errorDetails = error.message;
+    } else if (error.name === "AuthorizationError") {
+      statusCode = 401;
+      errorMessage = "Authentication required";
+    } else if (error.code === "EntityTooLarge") {
+      statusCode = 413;
+      errorMessage = "Image file too large";
+    } else if (error.$metadata?.httpStatusCode) {
+      // AWS service errors
+      statusCode = error.$metadata.httpStatusCode;
+      errorMessage = "Service temporarily unavailable";
+      errorDetails = error.message;
+    }
+
+    return createErrorResponse(statusCode, errorMessage, errorDetails);
   }
 };
