@@ -62,6 +62,51 @@ export const handler = async (event) => {
     "Content-Type": "application/json",
   };
 
+  // Try to get userId from multiple sources
+  let userId;
+
+  // First try to get from JWT token
+  const authHeader = event.headers.Authorization || event.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const token = authHeader.split(" ")[1];
+      const decodedToken = jwt_decode(token);
+      userId = decodedToken.username || decodedToken.sub;
+    } catch (error) {
+      console.warn("Warning: Failed to decode token:", error);
+      // Continue execution - will try other sources for userId
+    }
+  }
+
+  // Parse the body
+  const body = event.isBase64Encoded
+    ? Buffer.from(event.body, "base64").toString()
+    : event.body;
+
+  console.log("Decoded body:", body);
+
+  const {
+    imageHash,
+    feedbackType,
+    comment,
+    userId: bodyUserId,
+  } = JSON.parse(body);
+
+  // If we didn't get userId from token, try to get it from body
+  userId = userId || bodyUserId;
+
+  // Final check for userId
+  if (!userId) {
+    return {
+      statusCode: 400,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        error:
+          "Unable to determine user ID. Please ensure you are authenticated or provide a user ID.",
+      }),
+    };
+  }
+
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -76,15 +121,6 @@ export const handler = async (event) => {
   console.log("Raw event:", event);
   console.log("Event body:", event.body);
   console.log("Is base64 encoded:", event.isBase64Encoded);
-
-  const body = event.isBase64Encoded
-    ? Buffer.from(event.body, "base64").toString()
-    : event.body;
-
-  console.log("Decoded body:", body);
-
-  const { imageHash, feedbackType, comment } = JSON.parse(body);
-  const userId = event.requestContext.authorizer.claims.username;
 
   if (feedbackType !== "up" && feedbackType !== "down") {
     return {
