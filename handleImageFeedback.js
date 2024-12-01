@@ -4,7 +4,6 @@ import {
   GetItemCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
-import { parse } from "lambda-multipart-parser";
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
@@ -75,24 +74,40 @@ export const handler = async (event) => {
   }
 
   try {
-    // Decode the base64 body if necessary
-    const decodedBody = event.isBase64Encoded
-      ? Buffer.from(event.body, "base64").toString("binary")
-      : event.body;
+    let feedbackData;
+    const contentType =
+      event.headers["content-type"] || event.headers["Content-Type"];
+    console.log("Content-Type:", contentType);
 
-    console.log("Is base64 encoded:", event.isBase64Encoded);
-    console.log("Decoded body:", decodedBody);
+    // Handle different content types
+    if (contentType?.includes("multipart/form-data")) {
+      // Handle multipart form data
+      const decodedBody = event.isBase64Encoded
+        ? Buffer.from(event.body, "base64").toString("binary")
+        : event.body;
 
-    // Parse the multipart form data
-    const result = await parse({
-      ...event,
-      body: decodedBody,
-      isBase64Encoded: false, // Since we've already decoded it
-    });
+      console.log("Is base64 encoded:", event.isBase64Encoded);
+      console.log("Decoded body:", decodedBody);
 
-    // Extract feedback data from the parsed result
-    const feedbackData = JSON.parse(result.feedback);
+      const result = await parse({
+        ...event,
+        body: decodedBody,
+        isBase64Encoded: false,
+      });
+
+      feedbackData = JSON.parse(result.feedback);
+    } else {
+      // Handle application/json
+      const body = event.isBase64Encoded
+        ? Buffer.from(event.body, "base64").toString()
+        : event.body;
+
+      console.log("JSON body:", body);
+      feedbackData = typeof body === "string" ? JSON.parse(body) : body;
+    }
+
     const { imageHash, feedbackType, comment } = feedbackData;
+    console.log("Parsed feedback data:", { imageHash, feedbackType, comment });
 
     // Try to get userId from JWT token
     let userId;
