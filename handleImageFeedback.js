@@ -69,30 +69,67 @@ export const handler = async (event) => {
 
   // First try to get from JWT token
   const authHeader = event.headers.Authorization || event.headers.authorization;
+  console.log("Auth header:", authHeader);
+
   if (authHeader?.startsWith("Bearer ")) {
     try {
       const token = authHeader.split(" ")[1];
+      console.log("Extracted token:", token);
+
       const decodedToken = jwtDecode(token);
+      console.log("Decoded token:", decodedToken);
+
       userId = decodedToken.username || decodedToken.sub;
+      console.log("Extracted userId from token:", userId);
     } catch (error) {
-      console.warn("Warning: Failed to decode token:", error);
+      console.error("Error decoding token:", error);
+      console.error("Token decode error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
       // Continue execution - will try other sources for userId
     }
+  } else {
+    console.log("No valid Bearer token found in Authorization header");
   }
 
   // Parse the body
-  const body = event.isBase64Encoded
-    ? Buffer.from(event.body, "base64").toString()
-    : event.body;
+  let parsedBody;
+  try {
+    const contentType =
+      event.headers["content-type"] || event.headers["Content-Type"];
 
-  console.log("Decoded body:", body);
+    if (contentType?.includes("multipart/form-data")) {
+      // Handle multipart form data
+      parsedBody = await parse(event);
+    } else {
+      // Handle JSON data
+      if (event.isBase64Encoded) {
+        const decodedBody = Buffer.from(event.body, "base64").toString();
+        parsedBody = JSON.parse(decodedBody);
+      } else if (typeof event.body === "string") {
+        parsedBody = JSON.parse(event.body);
+      } else {
+        parsedBody = event.body;
+      }
+    }
 
-  const {
-    imageHash,
-    feedbackType,
-    comment,
-    userId: bodyUserId,
-  } = JSON.parse(body);
+    console.log("Content-Type:", contentType);
+    console.log("Parsed body:", parsedBody);
+  } catch (error) {
+    console.error("Error parsing body:", error);
+    return {
+      statusCode: 400,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        error: "Invalid request body format",
+        details: error.message,
+      }),
+    };
+  }
+
+  const { imageHash, feedbackType, comment, userId: bodyUserId } = parsedBody;
 
   // If we didn't get userId from token, try to get it from body
   userId = userId || bodyUserId;
