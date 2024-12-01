@@ -5,7 +5,7 @@ import {
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { parse } from "lambda-multipart-parser";
-import jwt_decode from "jwt-decode";
+import { jwtDecode } from "jwt-decode";
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
@@ -72,7 +72,7 @@ export const handler = async (event) => {
   if (authHeader?.startsWith("Bearer ")) {
     try {
       const token = authHeader.split(" ")[1];
-      const decodedToken = jwt_decode(token);
+      const decodedToken = jwtDecode(token);
       userId = decodedToken.username || decodedToken.sub;
     } catch (error) {
       console.warn("Warning: Failed to decode token:", error);
