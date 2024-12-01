@@ -52,7 +52,17 @@ const getValidOrigin = (event) => {
 };
 
 export const handler = async (event) => {
+  console.log("Raw event:", {
+    ...event,
+    headers: event.headers,
+    body: event.body,
+    isBase64Encoded: event.isBase64Encoded,
+    httpMethod: event.httpMethod,
+  });
+
   const origin = getValidOrigin(event);
+  console.log("Determined origin:", origin);
+
   const allowOrigin = allowedOrigins.includes(origin)
     ? origin
     : allowedOrigins[0];
@@ -69,26 +79,31 @@ export const handler = async (event) => {
 
   // First try to get from JWT token
   const authHeader = event.headers.Authorization || event.headers.authorization;
-  console.log("Auth header:", authHeader);
+  console.log("All headers:", event.headers);
+  console.log("Auth header (raw):", authHeader);
 
   if (authHeader?.startsWith("Bearer ")) {
     try {
       const token = authHeader.split(" ")[1];
-      console.log("Extracted token:", token);
+      console.log("Extracted token:", token?.substring(0, 20) + "...");
 
       const decodedToken = jwtDecode(token);
-      console.log("Decoded token:", decodedToken);
+      console.log("Decoded token structure:", {
+        keys: Object.keys(decodedToken),
+        sub: decodedToken.sub,
+        username: decodedToken.username,
+        email: decodedToken.email,
+      });
 
       userId = decodedToken.username || decodedToken.sub;
-      console.log("Extracted userId from token:", userId);
+      console.log("Final determined userId:", userId);
     } catch (error) {
-      console.error("Error decoding token:", error);
-      console.error("Token decode error details:", {
+      console.error("Token decode error:", {
         name: error.name,
         message: error.message,
         stack: error.stack,
+        token: authHeader?.substring(0, 20) + "...",
       });
-      // Continue execution - will try other sources for userId
     }
   } else {
     console.log("No valid Bearer token found in Authorization header");
@@ -99,32 +114,42 @@ export const handler = async (event) => {
   try {
     const contentType =
       event.headers["content-type"] || event.headers["Content-Type"];
+    console.log("Content-Type (raw):", contentType);
 
     if (contentType?.includes("multipart/form-data")) {
-      // Handle multipart form data
+      console.log("Parsing as multipart/form-data");
       parsedBody = await parse(event);
-    } else {
-      // Handle JSON data
+    } else if (contentType?.includes("application/json")) {
+      console.log("Parsing as application/json");
       if (event.isBase64Encoded) {
         const decodedBody = Buffer.from(event.body, "base64").toString();
         parsedBody = JSON.parse(decodedBody);
-      } else if (typeof event.body === "string") {
-        parsedBody = JSON.parse(event.body);
       } else {
-        parsedBody = event.body;
+        parsedBody = JSON.parse(event.body);
       }
+    } else {
+      console.log("Attempting to parse unknown content type as JSON");
+      // Try to parse as JSON anyway
+      parsedBody =
+        typeof event.body === "string" ? JSON.parse(event.body) : event.body;
     }
 
-    console.log("Content-Type:", contentType);
-    console.log("Parsed body:", parsedBody);
+    console.log("Final parsed body:", parsedBody);
   } catch (error) {
-    console.error("Error parsing body:", error);
+    console.error("Body parsing error:", {
+      error: error.message,
+      rawBody: event.body?.substring(0, 100) + "...",
+      contentType:
+        event.headers["content-type"] || event.headers["Content-Type"],
+    });
     return {
       statusCode: 400,
       headers: corsHeaders,
       body: JSON.stringify({
         error: "Invalid request body format",
         details: error.message,
+        contentType:
+          event.headers["content-type"] || event.headers["Content-Type"],
       }),
     };
   }
