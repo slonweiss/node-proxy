@@ -7,10 +7,38 @@ import {
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
+// Add JWT verification function
+const extractUserId = (authHeader) => {
+  try {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.log("No valid Bearer token found in auth header");
+      return null;
+    }
+    const token = authHeader.split(" ")[1];
+    const decoded = Buffer.from(token.split(".")[1], "base64").toString();
+    const payload = JSON.parse(decoded);
+    return payload.username || null;
+  } catch (error) {
+    console.error("Error decoding JWT:", error);
+    return null;
+  }
+};
+
 export const handler = async (event) => {
   console.log("Raw event:", event);
   console.log("Event body:", event.body);
   console.log("Is base64 encoded:", event.isBase64Encoded);
+
+  // Extract userId from Authorization header
+  const authHeader = event.headers.Authorization || event.headers.authorization;
+  const userId = extractUserId(authHeader);
+
+  if (!userId) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: "Valid authorization token is required" }),
+    };
+  }
 
   const body = event.isBase64Encoded
     ? Buffer.from(event.body, "base64").toString()
@@ -18,14 +46,7 @@ export const handler = async (event) => {
 
   console.log("Decoded body:", body);
 
-  const { imageHash, feedbackType, comment, userId } = JSON.parse(body);
-
-  if (!userId) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "UserId is required" }),
-    };
-  }
+  const { imageHash, feedbackType, comment } = JSON.parse(body);
 
   if (feedbackType !== "up" && feedbackType !== "down") {
     return {
