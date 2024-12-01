@@ -75,6 +75,10 @@ Resources:
           Properties:
             Path: /analyze-image
             Method: post
+            RestApiId: !Ref ServerlessRestApi
+            Auth:
+              AllowHeaders:
+                - Authorization
 
   # Removed ImageBucket resource since it already exists
   # ImageBucket:
@@ -136,6 +140,10 @@ Resources:
           Properties:
             Path: /submit-feedback
             Method: post
+            RestApiId: !Ref ServerlessRestApi
+            Auth:
+              AllowHeaders:
+                - Authorization
 
   HandleImageFeedbackPermission:
     Type: AWS::Lambda::Permission
@@ -175,6 +183,23 @@ Resources:
     DeletionPolicy: Retain
     Properties:
       StageName: Prod
+      Cors:
+        AllowMethods: "'POST, OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+              Access-Control-Allow-Methods: "'POST, OPTIONS'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+              Access-Control-Allow-Methods: "'POST, OPTIONS'"
 
 Outputs:
   ApiUrl:
