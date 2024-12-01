@@ -7,24 +7,6 @@ import {
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
-// Add JWT verification function
-const extractUserId = (authHeader) => {
-  try {
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.log("No valid Bearer token found in auth header");
-      return null;
-    }
-    const token = authHeader.split(" ")[1];
-    const decoded = Buffer.from(token.split(".")[1], "base64").toString();
-    const payload = JSON.parse(decoded);
-    return payload.username || null;
-  } catch (error) {
-    console.error("Error decoding JWT:", error);
-    return null;
-  }
-};
-
-// Add this at the top with other constants
 const allowedOrigins = [
   "https://www.linkedin.com",
   "https://www.facebook.com",
@@ -36,7 +18,6 @@ const allowedOrigins = [
   "https://api.realeyes.ai",
 ];
 
-// Add this utility function
 const getValidOrigin = (event) => {
   const xOrigin = event.headers["x-origin"] || event.headers["X-Origin"];
   const origin = event.headers.origin || event.headers.Origin;
@@ -69,7 +50,6 @@ const getValidOrigin = (event) => {
 };
 
 export const handler = async (event) => {
-  // Add CORS handling at the start of the handler
   const origin = getValidOrigin(event);
   const allowOrigin = allowedOrigins.includes(origin)
     ? origin
@@ -82,7 +62,6 @@ export const handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  // Handle OPTIONS request for CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -98,18 +77,6 @@ export const handler = async (event) => {
   console.log("Event body:", event.body);
   console.log("Is base64 encoded:", event.isBase64Encoded);
 
-  // Extract userId from Authorization header
-  const authHeader = event.headers.Authorization || event.headers.authorization;
-  const userId = extractUserId(authHeader);
-
-  if (!userId) {
-    return {
-      statusCode: 401,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: "Valid authorization token is required" }),
-    };
-  }
-
   const body = event.isBase64Encoded
     ? Buffer.from(event.body, "base64").toString()
     : event.body;
@@ -117,6 +84,7 @@ export const handler = async (event) => {
   console.log("Decoded body:", body);
 
   const { imageHash, feedbackType, comment } = JSON.parse(body);
+  const userId = event.requestContext.authorizer.claims.username;
 
   if (feedbackType !== "up" && feedbackType !== "down") {
     return {
@@ -142,7 +110,6 @@ export const handler = async (event) => {
   if (existingFeedback.Item) {
     const existingType = existingFeedback.Item.Type.S;
 
-    // If feedback type is the same, return early
     if (existingType === feedbackType) {
       return {
         statusCode: 200,
@@ -156,9 +123,7 @@ export const handler = async (event) => {
       };
     }
 
-    // Update feedback if it's different
     try {
-      // Update the feedback entry
       const updateFeedbackParams = {
         TableName: process.env.COMMENT_TABLE,
         Key: {
@@ -181,7 +146,6 @@ export const handler = async (event) => {
 
       await dynamoDBClient.send(new UpdateItemCommand(updateFeedbackParams));
 
-      // Update the counts in the cache table
       const updateCountParams = {
         TableName: process.env.DYNAMODB_TABLE,
         Key: {
@@ -221,7 +185,6 @@ export const handler = async (event) => {
     }
   }
 
-  // If no existing feedback, continue with the original code for new feedback
   const putParams = {
     TableName: process.env.COMMENT_TABLE,
     Item: {
@@ -236,7 +199,6 @@ export const handler = async (event) => {
   try {
     await dynamoDBClient.send(new PutItemCommand(putParams));
 
-    // Also update the count in the cache table
     const updateCountParams = {
       TableName: process.env.DYNAMODB_TABLE,
       Key: {
