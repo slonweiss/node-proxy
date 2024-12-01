@@ -4,6 +4,7 @@ import {
   GetItemCommand,
   UpdateItemCommand,
 } from "@aws-sdk/client-dynamodb";
+import { parse } from "lambda-multipart-parser";
 
 const dynamoDBClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 
@@ -62,51 +63,6 @@ export const handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  // Try to get userId from multiple sources
-  let userId;
-
-  // First try to get from JWT token
-  const authHeader = event.headers.Authorization || event.headers.authorization;
-  if (authHeader?.startsWith("Bearer ")) {
-    try {
-      const token = authHeader.split(" ")[1];
-      const decodedToken = jwt_decode(token);
-      userId = decodedToken.username || decodedToken.sub;
-    } catch (error) {
-      console.warn("Warning: Failed to decode token:", error);
-      // Continue execution - will try other sources for userId
-    }
-  }
-
-  // Parse the body
-  const body = event.isBase64Encoded
-    ? Buffer.from(event.body, "base64").toString()
-    : event.body;
-
-  console.log("Decoded body:", body);
-
-  const {
-    imageHash,
-    feedbackType,
-    comment,
-    userId: bodyUserId,
-  } = JSON.parse(body);
-
-  // If we didn't get userId from token, try to get it from body
-  userId = userId || bodyUserId;
-
-  // Final check for userId
-  if (!userId) {
-    return {
-      statusCode: 400,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        error:
-          "Unable to determine user ID. Please ensure you are authenticated or provide a user ID.",
-      }),
-    };
-  }
-
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -118,83 +74,168 @@ export const handler = async (event) => {
     };
   }
 
-  console.log("Raw event:", event);
-  console.log("Event body:", event.body);
-  console.log("Is base64 encoded:", event.isBase64Encoded);
+  try {
+    // Decode the base64 body if necessary
+    const decodedBody = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64").toString("binary")
+      : event.body;
 
-  if (feedbackType !== "up" && feedbackType !== "down") {
-    return {
-      statusCode: 400,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        error: 'Invalid feedbackType. Must be "up" or "down".',
-      }),
-    };
-  }
+    console.log("Is base64 encoded:", event.isBase64Encoded);
+    console.log("Decoded body:", decodedBody);
 
-  // Check if user has already submitted feedback for this image
-  const existingFeedback = await dynamoDBClient.send(
-    new GetItemCommand({
-      TableName: process.env.COMMENT_TABLE,
-      Key: {
-        ImageHash: { S: imageHash },
-        UserId: { S: userId },
-      },
-    })
-  );
+    // Parse the multipart form data
+    const result = await parse({
+      ...event,
+      body: decodedBody,
+      isBase64Encoded: false, // Since we've already decoded it
+    });
 
-  if (existingFeedback.Item) {
-    const existingType = existingFeedback.Item.Type.S;
+    // Extract feedback data from the parsed result
+    const feedbackData = JSON.parse(result.feedback);
+    const { imageHash, feedbackType, comment } = feedbackData;
 
-    if (existingType === feedbackType) {
+    // Try to get userId from JWT token
+    let userId;
+    const authHeader =
+      event.headers.Authorization || event.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const token = authHeader.split(" ")[1];
+        const decodedToken = jwt_decode(token);
+        userId = decodedToken.username || decodedToken.sub;
+      } catch (error) {
+        console.warn("Warning: Failed to decode token:", error);
+      }
+    }
+
+    // If we didn't get userId from token, return error
+    if (!userId) {
       return {
-        statusCode: 200,
+        statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({
-          message: "Feedback already received",
-          imageHash: imageHash,
-          userId: userId,
-          feedbackType: feedbackType,
+          error:
+            "Unable to determine user ID. Please ensure you are authenticated.",
         }),
       };
     }
 
-    try {
-      const updateFeedbackParams = {
+    // Check if user has already submitted feedback for this image
+    const existingFeedback = await dynamoDBClient.send(
+      new GetItemCommand({
         TableName: process.env.COMMENT_TABLE,
         Key: {
           ImageHash: { S: imageHash },
           UserId: { S: userId },
         },
-        UpdateExpression:
-          "SET #type = :newType, #comment = :newComment, #timestamp = :newTimestamp",
-        ExpressionAttributeNames: {
-          "#type": "Type",
-          "#comment": "Comment",
-          "#timestamp": "Timestamp",
-        },
-        ExpressionAttributeValues: {
-          ":newType": { S: feedbackType },
-          ":newComment": { S: comment || "" },
-          ":newTimestamp": { S: new Date().toISOString() },
-        },
-      };
+      })
+    );
 
-      await dynamoDBClient.send(new UpdateItemCommand(updateFeedbackParams));
+    if (existingFeedback.Item) {
+      const existingType = existingFeedback.Item.Type.S;
+
+      if (existingType === feedbackType) {
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            message: "Feedback already received",
+            imageHash: imageHash,
+            userId: userId,
+            feedbackType: feedbackType,
+          }),
+        };
+      }
+
+      try {
+        const updateFeedbackParams = {
+          TableName: process.env.COMMENT_TABLE,
+          Key: {
+            ImageHash: { S: imageHash },
+            UserId: { S: userId },
+          },
+          UpdateExpression:
+            "SET #type = :newType, #comment = :newComment, #timestamp = :newTimestamp",
+          ExpressionAttributeNames: {
+            "#type": "Type",
+            "#comment": "Comment",
+            "#timestamp": "Timestamp",
+          },
+          ExpressionAttributeValues: {
+            ":newType": { S: feedbackType },
+            ":newComment": { S: comment || "" },
+            ":newTimestamp": { S: new Date().toISOString() },
+          },
+        };
+
+        await dynamoDBClient.send(new UpdateItemCommand(updateFeedbackParams));
+
+        const updateCountParams = {
+          TableName: process.env.DYNAMODB_TABLE,
+          Key: {
+            ImageHash: { S: imageHash },
+          },
+          UpdateExpression: "ADD #newFeedbackType :inc, #oldFeedbackType :dec",
+          ExpressionAttributeNames: {
+            "#newFeedbackType":
+              feedbackType === "up" ? "ThumbsUp" : "ThumbsDown",
+            "#oldFeedbackType":
+              existingType === "up" ? "ThumbsUp" : "ThumbsDown",
+          },
+          ExpressionAttributeValues: {
+            ":inc": { N: "1" },
+            ":dec": { N: "-1" },
+          },
+        };
+
+        await dynamoDBClient.send(new UpdateItemCommand(updateCountParams));
+
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            message: "Feedback updated successfully",
+            imageHash: imageHash,
+            userId: userId,
+            feedbackType: feedbackType,
+            previousFeedback: existingType,
+          }),
+        };
+      } catch (error) {
+        console.error("Error updating feedback:", error);
+        return {
+          statusCode: 500,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: "Failed to update feedback" }),
+        };
+      }
+    }
+
+    const putParams = {
+      TableName: process.env.COMMENT_TABLE,
+      Item: {
+        ImageHash: { S: imageHash },
+        UserId: { S: userId },
+        Type: { S: feedbackType },
+        Comment: { S: comment || "" },
+        Timestamp: { S: new Date().toISOString() },
+      },
+    };
+
+    try {
+      await dynamoDBClient.send(new PutItemCommand(putParams));
 
       const updateCountParams = {
         TableName: process.env.DYNAMODB_TABLE,
         Key: {
           ImageHash: { S: imageHash },
         },
-        UpdateExpression: "ADD #newFeedbackType :inc, #oldFeedbackType :dec",
+        UpdateExpression: "ADD #feedbackType :inc",
         ExpressionAttributeNames: {
-          "#newFeedbackType": feedbackType === "up" ? "ThumbsUp" : "ThumbsDown",
-          "#oldFeedbackType": existingType === "up" ? "ThumbsUp" : "ThumbsDown",
+          "#feedbackType": feedbackType === "up" ? "ThumbsUp" : "ThumbsDown",
         },
         ExpressionAttributeValues: {
           ":inc": { N: "1" },
-          ":dec": { N: "-1" },
         },
       };
 
@@ -204,79 +245,36 @@ export const handler = async (event) => {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
-          message: "Feedback updated successfully",
+          message: "Feedback submitted successfully",
           imageHash: imageHash,
           userId: userId,
           feedbackType: feedbackType,
-          previousFeedback: existingType,
         }),
       };
     } catch (error) {
-      console.error("Error updating feedback:", error);
+      if (error.name === "ConditionalCheckFailedException") {
+        return {
+          statusCode: 409,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            error: "User has already submitted feedback for this image",
+          }),
+        };
+      }
+
+      console.error("Error submitting feedback:", error);
       return {
         statusCode: 500,
         headers: corsHeaders,
-        body: JSON.stringify({ error: "Failed to update feedback" }),
+        body: JSON.stringify({ error: "Failed to submit feedback" }),
       };
     }
-  }
-
-  const putParams = {
-    TableName: process.env.COMMENT_TABLE,
-    Item: {
-      ImageHash: { S: imageHash },
-      UserId: { S: userId },
-      Type: { S: feedbackType },
-      Comment: { S: comment || "" },
-      Timestamp: { S: new Date().toISOString() },
-    },
-  };
-
-  try {
-    await dynamoDBClient.send(new PutItemCommand(putParams));
-
-    const updateCountParams = {
-      TableName: process.env.DYNAMODB_TABLE,
-      Key: {
-        ImageHash: { S: imageHash },
-      },
-      UpdateExpression: "ADD #feedbackType :inc",
-      ExpressionAttributeNames: {
-        "#feedbackType": feedbackType === "up" ? "ThumbsUp" : "ThumbsDown",
-      },
-      ExpressionAttributeValues: {
-        ":inc": { N: "1" },
-      },
-    };
-
-    await dynamoDBClient.send(new UpdateItemCommand(updateCountParams));
-
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        message: "Feedback submitted successfully",
-        imageHash: imageHash,
-        userId: userId,
-        feedbackType: feedbackType,
-      }),
-    };
   } catch (error) {
-    if (error.name === "ConditionalCheckFailedException") {
-      return {
-        statusCode: 409,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          error: "User has already submitted feedback for this image",
-        }),
-      };
-    }
-
-    console.error("Error submitting feedback:", error);
+    console.error("Error processing request:", error);
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: "Failed to submit feedback" }),
+      body: JSON.stringify({ error: "Failed to process request" }),
     };
   }
 };
