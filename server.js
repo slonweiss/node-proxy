@@ -464,19 +464,51 @@ const prepareDynamoDBItem = (metadata) => {
     // Process C2PA metadata (simplified)
     const c2paAttributes = metadata.c2pa
       ? {
-          title: metadata.c2pa.title,
-          author: metadata.c2pa.author,
-          claim_generator: metadata.c2pa.claim_generator,
-          instance_id: metadata.c2pa.instance_id,
-          thumbnail_format: metadata.c2pa.thumbnail?.format,
-          thumbnail_id: metadata.c2pa.thumbnail?.identifier,
-          signature_info: JSON.stringify({
-            issuer: metadata.c2pa.signature_info?.issuer,
-            time: metadata.c2pa.signature_info?.time,
-          }),
-          actions: JSON.stringify(metadata.c2pa.actions),
+          M: {
+            title: metadata.c2pa.title
+              ? { S: metadata.c2pa.title }
+              : { NULL: true },
+            author: metadata.c2pa.author
+              ? { S: metadata.c2pa.author }
+              : { NULL: true },
+            claim_generator: metadata.c2pa.claim_generator
+              ? { S: metadata.c2pa.claim_generator }
+              : { NULL: true },
+            instance_id: metadata.c2pa.instance_id
+              ? { S: metadata.c2pa.instance_id }
+              : { NULL: true },
+            thumbnail: metadata.c2pa.thumbnail
+              ? {
+                  M: {
+                    format: { S: metadata.c2pa.thumbnail.format },
+                    identifier: { S: metadata.c2pa.thumbnail.identifier },
+                  },
+                }
+              : { NULL: true },
+            signature_info: metadata.c2pa.signature_info
+              ? {
+                  M: {
+                    issuer: { S: metadata.c2pa.signature_info.issuer || "" },
+                    time: { S: metadata.c2pa.signature_info.time || "" },
+                  },
+                }
+              : { NULL: true },
+            actions:
+              metadata.c2pa.actions && metadata.c2pa.actions.length > 0
+                ? {
+                    L: metadata.c2pa.actions.map((action) => ({
+                      M: {
+                        action: { S: action.action },
+                        parameters: action.parameters
+                          ? { S: JSON.stringify(action.parameters) }
+                          : { NULL: true },
+                      },
+                    })),
+                  }
+                : { NULL: true },
+          },
         }
-      : null;
+      : { NULL: true };
 
     // Convert to DynamoDB format
     return {
@@ -546,55 +578,77 @@ const logAttributeSizes = (item) => {
 
 // Add this function to simplify C2PA data
 const simplifyC2paData = (c2paData) => {
-  if (!c2paData) return null;
+  if (!c2paData) {
+    console.log("No C2PA data provided");
+    return null;
+  }
 
-  // Get the active manifest data - handle both direct and referenced manifests
-  const activeManifest =
-    c2paData.active_manifest || c2paData.manifests?.[c2paData.active_manifest];
-
-  if (!activeManifest) return null;
+  // Get the active manifest data
+  const activeManifest = c2paData.active_manifest;
+  if (!activeManifest) {
+    console.log("No active manifest found");
+    return null;
+  }
 
   console.log(
-    "Processing active manifest:",
-    JSON.stringify(activeManifest, null, 2)
+    "Active manifest assertions:",
+    JSON.stringify(activeManifest.assertions, null, 2)
   );
 
   // Extract author from schema.org assertion
   const schemaOrgAssertion = activeManifest.assertions?.find(
     (a) => a.label === "stds.schema-org.CreativeWork"
   );
+  console.log(
+    "Schema.org assertion:",
+    JSON.stringify(schemaOrgAssertion, null, 2)
+  );
+
   const author = schemaOrgAssertion?.data?.author?.[0]?.name || null;
+  console.log("Extracted author:", author);
 
   // Extract actions from c2pa.actions assertion
   const actionsAssertion = activeManifest.assertions?.find(
     (a) => a.label === "c2pa.actions"
   );
+  console.log("Actions assertion:", JSON.stringify(actionsAssertion, null, 2));
+
   const actions =
     actionsAssertion?.data?.actions?.map((action) => ({
       action: action.action,
       parameters: action.parameters || null,
     })) || [];
+  console.log("Extracted actions:", JSON.stringify(actions, null, 2));
 
   const simplified = {
-    title: activeManifest.title || null,
+    title: activeManifest.title,
     thumbnail: activeManifest.thumbnail
       ? {
           format: activeManifest.thumbnail.format,
-          // Exclude the binary data
-          identifier: activeManifest.thumbnail.identifier || "embedded",
+          identifier: "embedded",
         }
       : null,
     author: author,
-    claim_generator: activeManifest.claim_generator || null,
+    claim_generator: activeManifest.claim_generator,
     actions: actions,
     signature_info: {
-      issuer: activeManifest.signature_info?.issuer || null,
-      time: activeManifest.signature_info?.time || null,
+      issuer: activeManifest.signature_info?.issuer,
+      time: activeManifest.signature_info?.time,
     },
-    instance_id: activeManifest.instance_id || null,
+    instance_id: activeManifest.instance_id,
   };
 
-  console.log("Simplified C2PA data:", JSON.stringify(simplified, null, 2));
+  // Remove any null or undefined values
+  Object.keys(simplified).forEach((key) => {
+    if (simplified[key] === null || simplified[key] === undefined) {
+      delete simplified[key];
+    }
+  });
+
+  console.log(
+    "Final simplified C2PA data:",
+    JSON.stringify(simplified, null, 2)
+  );
   return simplified;
 };
 
