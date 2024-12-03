@@ -431,17 +431,23 @@ const prepareDynamoDBItem = (metadata) => {
         return { BOOL: value };
       }
       if (Array.isArray(value)) {
-        // Only process non-empty arrays of simple values
-        if (value.length === 0) {
-          return { L: [] };
-        }
-        return { L: value.map((item) => toDynamoDBValue(item.toString())) };
+        return { L: value.map((item) => toDynamoDBValue(item)) };
       }
-      // For objects, convert to string to avoid nested structure issues
-      return { S: JSON.stringify(value) };
+      if (typeof value === "object") {
+        return {
+          M: Object.entries(value).reduce(
+            (acc, [k, v]) => ({
+              ...acc,
+              [k]: toDynamoDBValue(v),
+            }),
+            {}
+          ),
+        };
+      }
+      return { S: String(value) };
     };
 
-    // Process Sharp metadata (only simple values)
+    // Process Sharp metadata (unchanged)
     const sharpAttributes = {
       format: metadata.sharp?.format,
       size: metadata.sharp?.size,
@@ -457,22 +463,24 @@ const prepareDynamoDBItem = (metadata) => {
       hasAlpha: metadata.sharp?.hasAlpha,
     };
 
-    // Process C2PA metadata (simplified)
+    // Process C2PA metadata
     const c2paAttributes = metadata.c2pa
       ? {
           title: metadata.c2pa.title,
           author: metadata.c2pa.author,
           claim_generator: metadata.c2pa.claim_generator,
           instance_id: metadata.c2pa.instance_id,
-          thumbnail_format: metadata.c2pa.thumbnail?.format,
-          thumbnail_id: metadata.c2pa.thumbnail?.identifier,
-          signature_info: JSON.stringify({
-            issuer: metadata.c2pa.signature_info?.issuer,
-            time: metadata.c2pa.signature_info?.time,
-          }),
-          actions: JSON.stringify(metadata.c2pa.actions),
+          format: metadata.c2pa.format,
+          thumbnail: metadata.c2pa.thumbnail,
+          actions: metadata.c2pa.actions,
+          signature_info: metadata.c2pa.signature_info,
         }
       : null;
+
+    console.log(
+      "C2PA attributes before conversion:",
+      JSON.stringify(c2paAttributes, null, 2)
+    );
 
     // Convert to DynamoDB format
     return {
@@ -490,17 +498,7 @@ const prepareDynamoDBItem = (metadata) => {
               ),
           },
           c2pa: c2paAttributes
-            ? {
-                M: Object.entries(c2paAttributes)
-                  .filter(([_, value]) => value !== undefined)
-                  .reduce(
-                    (acc, [key, value]) => ({
-                      ...acc,
-                      [key]: toDynamoDBValue(value),
-                    }),
-                    {}
-                  ),
-              }
+            ? toDynamoDBValue(c2paAttributes)
             : { NULL: true },
         },
       },
