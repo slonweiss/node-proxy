@@ -464,51 +464,19 @@ const prepareDynamoDBItem = (metadata) => {
     // Process C2PA metadata (simplified)
     const c2paAttributes = metadata.c2pa
       ? {
-          M: {
-            title: metadata.c2pa.title
-              ? { S: metadata.c2pa.title }
-              : { NULL: true },
-            author: metadata.c2pa.author
-              ? { S: metadata.c2pa.author }
-              : { NULL: true },
-            claim_generator: metadata.c2pa.claim_generator
-              ? { S: metadata.c2pa.claim_generator }
-              : { NULL: true },
-            instance_id: metadata.c2pa.instance_id
-              ? { S: metadata.c2pa.instance_id }
-              : { NULL: true },
-            thumbnail: metadata.c2pa.thumbnail
-              ? {
-                  M: {
-                    format: { S: metadata.c2pa.thumbnail.format },
-                    identifier: { S: metadata.c2pa.thumbnail.identifier },
-                  },
-                }
-              : { NULL: true },
-            signature_info: metadata.c2pa.signature_info
-              ? {
-                  M: {
-                    issuer: { S: metadata.c2pa.signature_info.issuer || "" },
-                    time: { S: metadata.c2pa.signature_info.time || "" },
-                  },
-                }
-              : { NULL: true },
-            actions:
-              metadata.c2pa.actions && metadata.c2pa.actions.length > 0
-                ? {
-                    L: metadata.c2pa.actions.map((action) => ({
-                      M: {
-                        action: { S: action.action },
-                        parameters: action.parameters
-                          ? { S: JSON.stringify(action.parameters) }
-                          : { NULL: true },
-                      },
-                    })),
-                  }
-                : { NULL: true },
-          },
+          title: metadata.c2pa.title,
+          author: metadata.c2pa.author,
+          claim_generator: metadata.c2pa.claim_generator,
+          instance_id: metadata.c2pa.instance_id,
+          thumbnail_format: metadata.c2pa.thumbnail?.format,
+          thumbnail_id: metadata.c2pa.thumbnail?.identifier,
+          signature_info: JSON.stringify({
+            issuer: metadata.c2pa.signature_info?.issuer,
+            time: metadata.c2pa.signature_info?.time,
+          }),
+          actions: JSON.stringify(metadata.c2pa.actions),
         }
-      : { NULL: true };
+      : null;
 
     // Convert to DynamoDB format
     return {
@@ -578,21 +546,28 @@ const logAttributeSizes = (item) => {
 
 // Add this function to simplify C2PA data
 const simplifyC2paData = (c2paData) => {
-  if (!c2paData) {
-    console.log("No C2PA data provided");
+  if (!c2paData?.active_manifest) {
+    console.log("No C2PA data or active manifest provided");
     return null;
   }
 
-  // Get the active manifest data
   const activeManifest = c2paData.active_manifest;
-  if (!activeManifest) {
-    console.log("No active manifest found");
-    return null;
-  }
-
   console.log(
-    "Active manifest assertions:",
-    JSON.stringify(activeManifest.assertions, null, 2)
+    "Processing active manifest:",
+    JSON.stringify(
+      {
+        ...activeManifest,
+        thumbnail: activeManifest.thumbnail
+          ? {
+              format: activeManifest.thumbnail.format,
+              // Exclude binary data from logs
+              data: "<binary data>",
+            }
+          : null,
+      },
+      null,
+      2
+    )
   );
 
   // Extract author from schema.org assertion
@@ -636,6 +611,7 @@ const simplifyC2paData = (c2paData) => {
       time: activeManifest.signature_info?.time,
     },
     instance_id: activeManifest.instance_id,
+    format: activeManifest.format,
   };
 
   // Remove any null or undefined values
