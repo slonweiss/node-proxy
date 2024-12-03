@@ -839,24 +839,48 @@ export const handler = async (event) => {
 
       const updatedItem = updateResult.Attributes;
 
-      // Helper function to convert DynamoDB format back to regular JSON
+      // In the handler function, where we handle duplicate files
       const fromDynamoDBValue = (attr) => {
         if (!attr || Object.keys(attr).length === 0) return null;
+
+        // Handle NULL type explicitly
         if (attr.NULL) return null;
+
+        // Handle basic types
         if (attr.S) return attr.S;
         if (attr.N) return Number(attr.N);
         if (attr.BOOL !== undefined) return attr.BOOL;
-        if (attr.L) return attr.L.map(fromDynamoDBValue);
-        if (attr.M) {
-          return Object.entries(attr.M).reduce(
-            (acc, [key, value]) => ({
-              ...acc,
-              [key]: fromDynamoDBValue(value),
-            }),
-            {}
-          );
-        }
         if (attr.SS) return attr.SS;
+
+        // Handle Lists (arrays)
+        if (attr.L) return attr.L.map((item) => fromDynamoDBValue(item));
+
+        // Handle Maps (objects)
+        if (attr.M) {
+          // Special handling for c2pa data
+          if (attr.M.c2pa) {
+            const c2pa = fromDynamoDBValue(attr.M.c2pa);
+            // If c2pa is an object with all null values, return null
+            if (
+              c2pa &&
+              typeof c2pa === "object" &&
+              Object.values(c2pa).every((v) => v === null)
+            ) {
+              return null;
+            }
+            return c2pa;
+          }
+
+          return Object.entries(attr.M).reduce((acc, [key, value]) => {
+            const convertedValue = fromDynamoDBValue(value);
+            // Only include non-null values
+            if (convertedValue !== null) {
+              acc[key] = convertedValue;
+            }
+            return acc;
+          }, {});
+        }
+
         return null;
       };
 
@@ -867,28 +891,37 @@ export const handler = async (event) => {
         c2pa: fromDynamoDBValue(updatedItem?.metadata?.M?.c2pa),
       };
 
+      // Log the formatted metadata to help debug
+      console.log(
+        "Formatted metadata:",
+        JSON.stringify(formattedMetadata, null, 2)
+      );
+
+      // Only include c2pa in the response if it has valid data
+      if (
+        !formattedMetadata.c2pa ||
+        (typeof formattedMetadata.c2pa === "object" &&
+          Object.values(formattedMetadata.c2pa).every((v) => v === null))
+      ) {
+        delete formattedMetadata.c2pa;
+      }
+
       // Format SageMaker analysis results
       const formattedSageMakerAnalysis = {
-        corvi: updatedItem?.sageMakerAnalysisCorvi23?.M
-          ? {
-              logit: parseFloat(
-                updatedItem.sageMakerAnalysisCorvi23.M.logit?.N
-              ),
-              probability: parseFloat(
-                updatedItem.sageMakerAnalysisCorvi23.M.probability?.N
-              ),
-              isFake: updatedItem.sageMakerAnalysisCorvi23.M.isFake?.BOOL,
-            }
-          : null,
-        ufd: updatedItem?.sageMakerAnalysisUFD?.M
-          ? {
-              logit: parseFloat(updatedItem.sageMakerAnalysisUFD.M.logit?.N),
-              probability: parseFloat(
-                updatedItem.sageMakerAnalysisUFD.M.probability?.N
-              ),
-              isFake: updatedItem.sageMakerAnalysisUFD.M.isFake?.BOOL,
-            }
-          : null,
+        corvi: {
+          logit: parseFloat(updatedItem?.sageMakerAnalysisCorvi23?.M?.logit?.N),
+          probability: parseFloat(
+            updatedItem?.sageMakerAnalysisCorvi23?.M?.probability?.N
+          ),
+          isFake: updatedItem?.sageMakerAnalysisCorvi23?.M?.isFake?.BOOL,
+        },
+        ufd: {
+          logit: parseFloat(updatedItem?.sageMakerAnalysisUFD?.M?.logit?.N),
+          probability: parseFloat(
+            updatedItem?.sageMakerAnalysisUFD?.M?.probability?.N
+          ),
+          isFake: updatedItem?.sageMakerAnalysisUFD?.M?.isFake?.BOOL,
+        },
       };
 
       return {
