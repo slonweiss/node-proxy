@@ -431,18 +431,18 @@ const prepareDynamoDBItem = (metadata) => {
         return { BOOL: value };
       }
       if (Array.isArray(value)) {
-        const list = value.map((item) => toDynamoDBValue(item));
-        return list.every((item) => item.NULL) ? { NULL: true } : { L: list };
+        return { L: value.map((item) => toDynamoDBValue(item)) };
       }
       if (typeof value === "object") {
-        const map = Object.entries(value).reduce((acc, [k, v]) => {
-          const converted = toDynamoDBValue(v);
-          if (!converted.NULL) {
-            acc[k] = converted;
-          }
-          return acc;
-        }, {});
-        return Object.keys(map).length === 0 ? { NULL: true } : { M: map };
+        return {
+          M: Object.entries(value).reduce(
+            (acc, [k, v]) => ({
+              ...acc,
+              [k]: toDynamoDBValue(v),
+            }),
+            {}
+          ),
+        };
       }
       return { S: String(value) };
     };
@@ -464,35 +464,15 @@ const prepareDynamoDBItem = (metadata) => {
     };
 
     // Process C2PA metadata
-    const c2paAttributes = metadata.c2pa
+    const c2paData = simplifyC2paData(metadata.c2pa);
+    const c2paAttributes = c2paData
       ? {
-          M: {
-            title: toDynamoDBValue(metadata.c2pa.title),
-            author: toDynamoDBValue(metadata.c2pa.author),
-            claim_generator: toDynamoDBValue(metadata.c2pa.claim_generator),
-            instance_id: toDynamoDBValue(metadata.c2pa.instance_id),
-            format: toDynamoDBValue(metadata.c2pa.format),
-            thumbnail: metadata.c2pa.thumbnail
-              ? toDynamoDBValue({
-                  format: metadata.c2pa.thumbnail.format,
-                  identifier: metadata.c2pa.thumbnail.identifier,
-                })
-              : { NULL: true },
-            actions: metadata.c2pa.actions
-              ? toDynamoDBValue(
-                  metadata.c2pa.actions.map((action) => ({
-                    action: action.action,
-                    parameters: action.parameters,
-                  }))
-                )
-              : { NULL: true },
-            signature_info: metadata.c2pa.signature_info
-              ? toDynamoDBValue({
-                  issuer: metadata.c2pa.signature_info.issuer,
-                  time: metadata.c2pa.signature_info.time,
-                })
-              : { NULL: true },
-          },
+          M: Object.entries(c2paData).reduce((acc, [key, value]) => {
+            if (value !== null && value !== undefined) {
+              acc[key] = toDynamoDBValue(value);
+            }
+            return acc;
+          }, {}),
         }
       : { NULL: true };
 
@@ -501,6 +481,7 @@ const prepareDynamoDBItem = (metadata) => {
       JSON.stringify(c2paAttributes, null, 2)
     );
 
+    // Convert to DynamoDB format
     return {
       metadata: {
         M: {
@@ -515,7 +496,6 @@ const prepareDynamoDBItem = (metadata) => {
                 {}
               ),
           },
-          exif: metadata.exif ? toDynamoDBValue(metadata.exif) : { NULL: true },
           c2pa: c2paAttributes,
         },
       },
@@ -526,7 +506,6 @@ const prepareDynamoDBItem = (metadata) => {
       metadata: {
         M: {
           sharp: { NULL: true },
-          exif: { NULL: true },
           c2pa: { NULL: true },
         },
       },
