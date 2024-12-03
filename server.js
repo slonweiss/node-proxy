@@ -212,11 +212,7 @@ async function extractAllMetadata(buffer) {
       console.log("C2PA data extracted:", c2paResult);
 
       if (c2paResult) {
-        metadata.c2pa = {
-          activeManifest: c2paResult.active_manifest,
-          manifestStore: c2paResult.manifests,
-          validationStatus: c2paResult.validation_status,
-        };
+        metadata.c2pa = c2paResult;
       } else {
         console.log("No C2PA data found in image");
         metadata.c2pa = null;
