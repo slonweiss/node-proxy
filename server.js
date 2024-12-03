@@ -464,17 +464,17 @@ const prepareDynamoDBItem = (metadata) => {
     // Process C2PA metadata (simplified)
     const c2paAttributes = metadata.c2pa
       ? {
-          generator: metadata.c2pa.activeManifest?.claim_generator,
-          title: metadata.c2pa.activeManifest?.title,
-          format: metadata.c2pa.activeManifest?.format,
-          instanceId: metadata.c2pa.activeManifest?.instance_id,
-          label: metadata.c2pa.activeManifest?.label,
-          manifestCount: Object.keys(metadata.c2pa.manifestStore || {}).length,
-          signatureInfo: JSON.stringify({
-            alg: metadata.c2pa.activeManifest?.signature_info?.alg,
-            issuer: metadata.c2pa.activeManifest?.signature_info?.issuer,
-            time: metadata.c2pa.activeManifest?.signature_info?.time,
+          title: metadata.c2pa.title,
+          author: metadata.c2pa.author,
+          claim_generator: metadata.c2pa.claim_generator,
+          instance_id: metadata.c2pa.instance_id,
+          thumbnail_format: metadata.c2pa.thumbnail?.format,
+          thumbnail_id: metadata.c2pa.thumbnail?.identifier,
+          signature_info: JSON.stringify({
+            issuer: metadata.c2pa.signature_info?.issuer,
+            time: metadata.c2pa.signature_info?.time,
           }),
+          actions: JSON.stringify(metadata.c2pa.actions),
         }
       : null;
 
@@ -548,50 +548,45 @@ const logAttributeSizes = (item) => {
 const simplifyC2paData = (c2paData) => {
   if (!c2paData) return null;
 
-  // Simplify active manifest
-  const simplifiedActiveManifest = c2paData.active_manifest
-    ? {
-        claim_generator: c2paData.active_manifest.claim_generator,
-        title: c2paData.active_manifest.title,
-        format: c2paData.active_manifest.format,
-        instance_id: c2paData.active_manifest.instance_id,
-        signature_info: {
-          alg: c2paData.active_manifest.signature_info?.alg,
-          issuer: c2paData.active_manifest.signature_info?.issuer,
-          time: c2paData.active_manifest.signature_info?.time,
-        },
-        label: c2paData.active_manifest.label,
-        // Include count of ingredients and assertions instead of full arrays
-        ingredientsCount: c2paData.active_manifest.ingredients?.length || 0,
-        assertionsCount: c2paData.active_manifest.assertions?.length || 0,
-      }
+  // Get the active manifest data
+  const activeManifest = c2paData.active_manifest
+    ? c2paData.manifests[c2paData.active_manifest]
     : null;
 
-  // Simplify manifests - just include basic info and counts
-  const simplifiedManifests = {};
-  if (c2paData.manifests) {
-    Object.entries(c2paData.manifests).forEach(([key, manifest]) => {
-      simplifiedManifests[key] = {
-        claim_generator: manifest.claim_generator,
-        title: manifest.title,
-        format: manifest.format,
-        instance_id: manifest.instance_id,
-        ingredientsCount: manifest.ingredients?.length || 0,
-        assertionsCount: manifest.assertions?.length || 0,
-        signature_info: {
-          alg: manifest.signature_info?.alg,
-          issuer: manifest.signature_info?.issuer,
-          time: manifest.signature_info?.time,
-        },
-      };
-    });
-  }
+  if (!activeManifest) return null;
+
+  // Extract author from schema.org assertion
+  const schemaOrgAssertion = activeManifest.assertions?.find(
+    (a) => a.label === "stds.schema-org.CreativeWork"
+  );
+  const author = schemaOrgAssertion?.data?.author?.[0]?.name || null;
+
+  // Extract actions from c2pa.actions assertion
+  const actionsAssertion = activeManifest.assertions?.find(
+    (a) => a.label === "c2pa.actions"
+  );
+  const actions =
+    actionsAssertion?.data?.actions?.map((action) => ({
+      action: action.action,
+      parameters: action.parameters || null,
+    })) || [];
 
   return {
-    active_manifest: simplifiedActiveManifest,
-    manifests: simplifiedManifests,
-    validation_status: c2paData.validation_status || [],
-    manifestCount: Object.keys(c2paData.manifests || {}).length,
+    title: activeManifest.title || null,
+    thumbnail: activeManifest.thumbnail
+      ? {
+          format: activeManifest.thumbnail.format,
+          identifier: activeManifest.thumbnail.identifier,
+        }
+      : null,
+    author: author,
+    claim_generator: activeManifest.claim_generator || null,
+    actions: actions,
+    signature_info: {
+      issuer: activeManifest.signature_info?.issuer || null,
+      time: activeManifest.signature_info?.time || null,
+    },
+    instance_id: activeManifest.instance_id || null,
   };
 };
 
