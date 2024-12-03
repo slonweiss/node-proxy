@@ -839,44 +839,56 @@ export const handler = async (event) => {
 
       const updatedItem = updateResult.Attributes;
 
+      // Helper function to convert DynamoDB format back to regular JSON
+      const fromDynamoDBValue = (attr) => {
+        if (!attr || Object.keys(attr).length === 0) return null;
+        if (attr.NULL) return null;
+        if (attr.S) return attr.S;
+        if (attr.N) return Number(attr.N);
+        if (attr.BOOL !== undefined) return attr.BOOL;
+        if (attr.L) return attr.L.map(fromDynamoDBValue);
+        if (attr.M) {
+          return Object.entries(attr.M).reduce(
+            (acc, [key, value]) => ({
+              ...acc,
+              [key]: fromDynamoDBValue(value),
+            }),
+            {}
+          );
+        }
+        if (attr.SS) return attr.SS;
+        return null;
+      };
+
       // Format metadata similar to new images
       const formattedMetadata = {
-        sharp: {
-          format: updatedItem?.metadata?.M?.sharp?.M?.format?.S,
-          size: parseInt(updatedItem?.metadata?.M?.sharp?.M?.size?.N),
-          width: parseInt(updatedItem?.metadata?.M?.sharp?.M?.width?.N),
-          height: parseInt(updatedItem?.metadata?.M?.sharp?.M?.height?.N),
-          space: updatedItem?.metadata?.M?.sharp?.M?.space?.S,
-          channels: parseInt(updatedItem?.metadata?.M?.sharp?.M?.channels?.N),
-          depth: updatedItem?.metadata?.M?.sharp?.M?.depth?.S,
-          density: parseInt(updatedItem?.metadata?.M?.sharp?.M?.density?.N),
-          chromaSubsampling:
-            updatedItem?.metadata?.M?.sharp?.M?.chromaSubsampling?.S,
-          isProgressive:
-            updatedItem?.metadata?.M?.sharp?.M?.isProgressive?.BOOL,
-          hasProfile: updatedItem?.metadata?.M?.sharp?.M?.hasProfile?.BOOL,
-          hasAlpha: updatedItem?.metadata?.M?.sharp?.M?.hasAlpha?.BOOL,
-        },
-        exif: updatedItem?.metadata?.M?.exif?.M || {},
-        c2pa: updatedItem?.metadata?.M?.c2pa?.M || {},
+        sharp: fromDynamoDBValue(updatedItem?.metadata?.M?.sharp),
+        exif: fromDynamoDBValue(updatedItem?.metadata?.M?.exif) || {},
+        c2pa: fromDynamoDBValue(updatedItem?.metadata?.M?.c2pa),
       };
 
       // Format SageMaker analysis results
       const formattedSageMakerAnalysis = {
-        corvi: {
-          logit: parseFloat(updatedItem?.sageMakerAnalysisCorvi23?.M?.logit?.N),
-          probability: parseFloat(
-            updatedItem?.sageMakerAnalysisCorvi23?.M?.probability?.N
-          ),
-          isFake: updatedItem?.sageMakerAnalysisCorvi23?.M?.isFake?.BOOL,
-        },
-        ufd: {
-          logit: parseFloat(updatedItem?.sageMakerAnalysisUFD?.M?.logit?.N),
-          probability: parseFloat(
-            updatedItem?.sageMakerAnalysisUFD?.M?.probability?.N
-          ),
-          isFake: updatedItem?.sageMakerAnalysisUFD?.M?.isFake?.BOOL,
-        },
+        corvi: updatedItem?.sageMakerAnalysisCorvi23?.M
+          ? {
+              logit: parseFloat(
+                updatedItem.sageMakerAnalysisCorvi23.M.logit?.N
+              ),
+              probability: parseFloat(
+                updatedItem.sageMakerAnalysisCorvi23.M.probability?.N
+              ),
+              isFake: updatedItem.sageMakerAnalysisCorvi23.M.isFake?.BOOL,
+            }
+          : null,
+        ufd: updatedItem?.sageMakerAnalysisUFD?.M
+          ? {
+              logit: parseFloat(updatedItem.sageMakerAnalysisUFD.M.logit?.N),
+              probability: parseFloat(
+                updatedItem.sageMakerAnalysisUFD.M.probability?.N
+              ),
+              isFake: updatedItem.sageMakerAnalysisUFD.M.isFake?.BOOL,
+            }
+          : null,
       };
 
       return {
