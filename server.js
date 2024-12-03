@@ -548,12 +548,16 @@ const logAttributeSizes = (item) => {
 const simplifyC2paData = (c2paData) => {
   if (!c2paData) return null;
 
-  // Get the active manifest data
-  const activeManifest = c2paData.active_manifest
-    ? c2paData.manifests[c2paData.active_manifest]
-    : null;
+  // Get the active manifest data - handle both direct and referenced manifests
+  const activeManifest =
+    c2paData.active_manifest || c2paData.manifests?.[c2paData.active_manifest];
 
   if (!activeManifest) return null;
+
+  console.log(
+    "Processing active manifest:",
+    JSON.stringify(activeManifest, null, 2)
+  );
 
   // Extract author from schema.org assertion
   const schemaOrgAssertion = activeManifest.assertions?.find(
@@ -571,12 +575,13 @@ const simplifyC2paData = (c2paData) => {
       parameters: action.parameters || null,
     })) || [];
 
-  return {
+  const simplified = {
     title: activeManifest.title || null,
     thumbnail: activeManifest.thumbnail
       ? {
           format: activeManifest.thumbnail.format,
-          identifier: activeManifest.thumbnail.identifier,
+          // Exclude the binary data
+          identifier: activeManifest.thumbnail.identifier || "embedded",
         }
       : null,
     author: author,
@@ -588,6 +593,9 @@ const simplifyC2paData = (c2paData) => {
     },
     instance_id: activeManifest.instance_id || null,
   };
+
+  console.log("Simplified C2PA data:", JSON.stringify(simplified, null, 2));
+  return simplified;
 };
 
 const createErrorResponse = (statusCode, message, details = null) => {
